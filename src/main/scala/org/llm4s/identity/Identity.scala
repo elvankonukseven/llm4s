@@ -27,9 +27,9 @@ case class TokenizerId(name: String)
 
 //noinspection TypeAnnotation,ScalaUnusedSymbol
 object TokenizerId {
-  val R50K_BASE   = TokenizerId("r50k_base")
+  val R50K_BASE   = TokenizerId("r50k_base")   // gpt-3
   val P50K_BASE   = TokenizerId("p50k_base")
   val P50K_EDIT   = TokenizerId("p50k_edit")
-  val CL100K_BASE = TokenizerId("cl100k_base")
-  val O200K_BASE  = TokenizerId("o200k_base")
+  val CL100K_BASE = TokenizerId("cl100k_base") // gpt-4, gpt-3.5
+  val O200K_BASE  = TokenizerId("o200k_base")  // gpt-4o
 }

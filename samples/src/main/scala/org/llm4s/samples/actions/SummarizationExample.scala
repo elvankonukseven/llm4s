@@ -2,6 +2,9 @@ package org.llm4s.samples.actions
 
 import org.llm4s.llmconnect.LLM
 import org.llm4s.llmconnect.model._
+import org.llm4s.tokens.Tokenizer
+import org.llm4s.identity.TokenizerId
+import org.llm4s.identity.TokenizerId.O200K_BASE
 
 /**
  * Example demonstrating how to use LLM4S for text summarization.
@@ -75,12 +78,25 @@ object SummarizationExample {
             s"Token usage: ${usage.totalTokens} total (${usage.promptTokens} prompt, ${usage.completionTokens} completion)"
           )
 
-          // Calculate compression ratio for summary
-          val originalTokens   = usage.promptTokens - 100 // Approximate tokens used by the system prompt
-          val outputTokens     = usage.completionTokens
-          val compressionRatio = outputTokens.toDouble / originalTokens.toDouble
+          val tokenizerId = O200K_BASE
 
-          println(f"Compression ratio: ${compressionRatio * 100}%.1f%% (lower is better)")
+          val tokenizerOpt = Tokenizer.lookupStringTokenizer(tokenizerId)
+          if (tokenizerOpt.isDefined) {
+
+            val tokenizer          = tokenizerOpt.get
+            val systemPromptTokens = tokenizer.encode(systemPrompt).size
+            // Calculate compression ratio for summary
+            val originalTokens   = usage.promptTokens - systemPromptTokens
+            val outputTokens     = usage.completionTokens
+            val compressionRatio = outputTokens.toDouble / originalTokens.toDouble
+            // add compression in words and in characters as well
+            println(f"Compression ratio: ${compressionRatio * 100}%.1f%% (lower is better)")
+            println(
+              f"${textToSummarize1.split("\\s+").length} words were successfully summarized into ${completion.message.content.trim.split("\\s+").length} words!"
+            )
+          } else {
+            println("Tokenizer not found!")
+          }
         }
 
       case Left(error) =>
