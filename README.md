@@ -375,6 +375,7 @@ This page includes detailed information on all GSoC projects with Scala Center f
 
 - **Contributor:** [Elvan Konukseven](https://github.com/elvankonukseven)
 - **LinkedIn:** [https://www.linkedin.com/in/elvan-konukseven/](https://www.linkedin.com/in/elvan-konukseven/)
+- **Email:** [elvankonukseven0@gmail.com](mailto:elvankonukseven0@gmail.com)
 - **Discord:** elvan_31441
 - **Mentor:** [Kannupriya Kalra](https://www.linkedin.com/in/kannupriyakalra/) (Email: [kannupriyakalra@gmail.com](mailto:kannupriyakalra@gmail.com))
 - **Co-mentor:** [Rory Graves](https://www.linkedin.com/in/roryjgraves/) (Email: [rory.graves@fieldmark.co.uk](mailto:rory.graves@fieldmark.co.uk))
