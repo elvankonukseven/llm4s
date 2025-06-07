@@ -21,23 +21,24 @@ object MCPServerConfig {
    * Creates configuration for stdio-based MCP server.
    * Launches server as subprocess and communicates via stdin/stdout.
    * 
-   * @param name Unique identifier for this server
+   * @param name Unique identifier for this server 
+   *             This name will be used in transport logging for easy identification
    * @param command Command line to launch the server process
    * @param timeout Maximum response timeout
    * @return MCPServerConfig configured for stdio transport
    */
   def stdio(name: String, command: Seq[String], timeout: Duration = 30.seconds): MCPServerConfig =
-    MCPServerConfig(name, StdioTransport(command), timeout)
+    MCPServerConfig(name, StdioTransport(command, name), timeout)
     
   /**
    * Creates configuration for SSE-based MCP server.
    * Connects to server via HTTP Server-Sent Events.
    * 
-   * @param name Unique identifier for this server
+   * @param name Unique identifier for this server 
    * @param url HTTP URL of the SSE endpoint
    * @param timeout Maximum response timeout  
    * @return MCPServerConfig configured for SSE transport
    */
   def sse(name: String, url: String, timeout: Duration = 30.seconds): MCPServerConfig =
-    MCPServerConfig(name, SSETransport(url), timeout)
+    MCPServerConfig(name, SSETransport(url, name), timeout)
 }

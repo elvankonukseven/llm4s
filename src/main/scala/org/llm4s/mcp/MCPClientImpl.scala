@@ -5,13 +5,19 @@ import upickle.default.{read => upickleRead, write => upickleWrite}
 import ujson.{read => ujsonRead, write => ujsonWrite, Value}
 import scala.util.{Try, Success, Failure}
 import java.util.concurrent.atomic.AtomicLong
+import org.slf4j.LoggerFactory
 
-// Default implementation of MCPClient interface
-// Handles MCP protocol communication, tool discovery, and execution
+/**
+ * Implementation of MCP client that connects to and communicates with MCP servers.
+ * Handles JSON-RPC communication, tool discovery, and execution delegation.
+ */
 class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
+  private val logger = LoggerFactory.getLogger(getClass)
   private val transport = MCPTransport.create(config)
   private val requestId = new AtomicLong(0)
   private var initialized = false
+  
+  logger.info(s"MCPClientImpl created for server: ${config.name}")
   
   // Performs MCP protocol handshake with the server
   override def initialize(): Either[String, Unit] = {
@@ -60,7 +66,7 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
     // Ensure we're initialized
     initialize() match {
       case Left(errorMsg) =>
-        System.err.println(s"Failed to initialize MCP client for ${config.name}: $errorMsg")
+        logger.error(s"Failed to initialize MCP client for ${config.name}: $errorMsg")
         return Seq.empty
       case Right(_) => // Continue
     }
@@ -79,17 +85,19 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
               val toolsData = result("tools").arr
               toolsData.map(convertMCPToolToToolFunction).toSeq
             } match {
-              case Success(tools) => tools
+              case Success(tools) => 
+                logger.info(s"Successfully retrieved ${tools.size} tools from ${config.name}")
+                tools
               case Failure(exception) =>
-                System.err.println(s"Failed to parse tools from ${config.name}: ${exception.getMessage}")
+                logger.error(s"Failed to parse tools from ${config.name}: ${exception.getMessage}", exception)
                 Seq.empty
             }
           case None =>
-            System.err.println(s"No tools result from ${config.name}")
+            logger.warn(s"No tools result from ${config.name}")
             Seq.empty
         }
       case Left(errorMsg) =>
-        System.err.println(s"Failed to fetch tools from ${config.name}: $errorMsg")
+        logger.error(s"Failed to fetch tools from ${config.name}: $errorMsg")
         Seq.empty
     }
   }

@@ -3,24 +3,29 @@ package org.llm4s.samples.mcp
 import com.sun.net.httpserver.{HttpServer, HttpHandler, HttpExchange}
 import java.net.InetSocketAddress
 import java.io.OutputStream
+import org.slf4j.LoggerFactory
 import upickle.default.{read => upickleRead, write => upickleWrite}
 import org.llm4s.mcp._
 import ujson.{Obj, Str, Num, Arr}
 import scala.util.{Try, Success, Failure}
 
 /**
- * Proper MCP server implementation that follows JSON-RPC 2.0 protocol
- * This server provides mock tools for testing MCP integration
+ * A Sample MCP Server for testing.
+ * This server implements SSE interface in line with MCP Spec (2024-11-05) that follows JSON-RPC 2.0 protocol.
+ * 
+ * Runs on port 8080
+ * To run: sbt "runMain org.llm4s.samples.mcp.DemonstrationMCPServer"
  */
-object MCPSseServer {
+object DemonstrationMCPServer {
+  private val logger = LoggerFactory.getLogger(getClass)
   
   def main(args: Array[String]): Unit = {
     val port = 8080
     val server = HttpServer.create(new InetSocketAddress(port), 0)
     
-    println(s"🚀 Starting Proper MCP Server on http://localhost:$port")
-    println("Protocol: JSON-RPC 2.0 over HTTP")
-    println("Available tools: get_weather, currency_convert")
+    logger.info(s"🚀 Starting Proper MCP Server on http://localhost:$port")
+    logger.info("Protocol: JSON-RPC 2.0 over HTTP")
+    logger.info("Available tools: get_weather, currency_convert")
     
     // Handle MCP endpoint for JSON-RPC communication
     server.createContext("/sse", new MCPHandler())
@@ -28,7 +33,7 @@ object MCPSseServer {
     server.setExecutor(null)
     server.start()
     
-    println("\n✨ MCP Server ready!")
+    logger.info("✨ MCP Server ready!")
     
     // Keep server running
     Thread.currentThread().join()
@@ -42,7 +47,7 @@ object MCPSseServer {
           val requestBody = scala.io.Source.fromInputStream(exchange.getRequestBody).mkString
           val jsonRpcRequest = upickleRead[JsonRpcRequest](requestBody)
           
-          println(s"📨 Received JSON-RPC request: ${jsonRpcRequest.method} (id: ${jsonRpcRequest.id})")
+          logger.debug(s"📨 Received JSON-RPC request: ${jsonRpcRequest.method} (id: ${jsonRpcRequest.id})")
           
           // Handle the JSON-RPC method
           val response = handleJsonRpcMethod(jsonRpcRequest)
@@ -53,7 +58,7 @@ object MCPSseServer {
         } match {
           case Success(_) => // Request handled successfully
           case Failure(exception) =>
-            println(s"❌ Error handling request: ${exception.getMessage}")
+            logger.error(s"❌ Error handling request: ${exception.getMessage}", exception)
             val errorResponse = JsonRpcResponse(
               id = "unknown",
               error = Some(JsonRpcError(-32700, "Parse error", None))
@@ -68,7 +73,7 @@ object MCPSseServer {
     private def handleJsonRpcMethod(request: JsonRpcRequest): JsonRpcResponse = {
       request.method match {
         case "initialize" =>
-          println("🤝 Handling initialization handshake")
+          logger.info("🤝 Handling initialization handshake")
           val initResponse = InitializeResponse(
             protocolVersion = "2024-11-05",
             capabilities = MCPCapabilities(
@@ -86,7 +91,7 @@ object MCPSseServer {
           )
           
         case "tools/list" =>
-          println("📋 Handling tools list request")
+          logger.info("📋 Handling tools list request")
           val tools = Seq(
             // Weather tool
             MCPTool(
@@ -143,7 +148,7 @@ object MCPSseServer {
           )
           
         case "tools/call" =>
-          println("🔧 Handling tool call request")
+          logger.info("🔧 Handling tool call request")
           request.params match {
             case Some(params) =>
               Try {
@@ -151,8 +156,8 @@ object MCPSseServer {
                 val toolName = toolCallRequest.name
                 val arguments = toolCallRequest.arguments.getOrElse(Obj())
                 
-                println(s"   Tool: $toolName")
-                println(s"   Args: ${arguments.render()}")
+                logger.debug(s"   Tool: $toolName")
+                logger.debug(s"   Args: ${arguments.render()}")
                 
                 val result = executeTool(toolName, arguments)
                 val content = Seq(MCPContent("text", result.render()))
@@ -165,7 +170,7 @@ object MCPSseServer {
               } match {
                 case Success(response) => response
                 case Failure(e) =>
-                  println(s"   Error parsing tool call: ${e.getMessage}")
+                  logger.error(s"   Error parsing tool call: ${e.getMessage}", e)
                   JsonRpcResponse(
                     id = request.id,
                     error = Some(JsonRpcError(-32602, "Invalid params", Some(Str(e.getMessage))))
@@ -180,7 +185,7 @@ object MCPSseServer {
           }
           
         case _ =>
-          println(s"❓ Unknown method: ${request.method}")
+          logger.warn(s"❓ Unknown method: ${request.method}")
           JsonRpcResponse(
             id = request.id,
             error = Some(JsonRpcError(-32601, "Method not found", None))
@@ -210,27 +215,42 @@ object MCPSseServer {
           val from = arguments("from").str.toUpperCase
           val to = arguments("to").str.toUpperCase
           
-          // Mock exchange rates
-          val rate = (from, to) match {
-            case ("USD", "EUR") => 0.85
-            case ("EUR", "USD") => 1.18
-            case ("USD", "GBP") => 0.75
-            case ("GBP", "USD") => 1.33
-            case ("EUR", "GBP") => 0.88
-            case ("GBP", "EUR") => 1.14
-            case ("USD", "JPY") => 110.0
-            case ("JPY", "USD") => 0.009
-            case _ => 1.0
-          }
-          
-          Obj(
-            "original_amount" -> Num(amount),
-            "from_currency" -> Str(from),
-            "to_currency" -> Str(to),
-            "converted_amount" -> Num(amount * rate),
-            "exchange_rate" -> Num(rate),
-            "source" -> Str("MCP server currency API")
+          // Simple exchange rate lookup table
+          val exchangeRates = Map(
+            ("USD", "EUR") -> 0.85,
+            ("EUR", "USD") -> 1.18,
+            ("USD", "GBP") -> 0.75,
+            ("GBP", "USD") -> 1.33,
+            ("EUR", "GBP") -> 0.88,
+            ("GBP", "EUR") -> 1.14,
+            ("USD", "JPY") -> 110.0,
+            ("JPY", "USD") -> 0.009
           )
+          
+          exchangeRates.get((from, to)) match {
+            case Some(rate) =>
+              // Success response
+              Obj(
+                "success" -> ujson.True,
+                "original_amount" -> Num(amount),
+                "from_currency" -> Str(from),
+                "to_currency" -> Str(to),
+                "converted_amount" -> Num(amount * rate),
+                "exchange_rate" -> Num(rate),
+                "source" -> Str("MCP server currency API")
+              )
+            case None =>
+              // Error response for unsupported pairs
+              Obj(
+                "success" -> ujson.False,
+                "error" -> Str("UNSUPPORTED_CURRENCY_PAIR"),
+                "message" -> Str(s"Currency conversion from $from to $to is not supported"),
+                "from_currency" -> Str(from),
+                "to_currency" -> Str(to),
+                "supported_currencies" -> Arr(Str("USD"), Str("EUR"), Str("GBP"), Str("JPY")),
+                "source" -> Str("MCP server currency API")
+              )
+          }
         
         case _ =>
           Obj("error" -> Str(s"Unknown tool: $toolName"))
@@ -242,7 +262,7 @@ object MCPSseServer {
       exchange.getResponseHeaders.set("Content-Type", "application/json")
       sendResponse(exchange, 200, responseJson)
       
-      println(s"📤 Sent JSON-RPC response (id: ${response.id})")
+      logger.debug(s"📤 Sent JSON-RPC response (id: ${response.id})")
     }
     
     private def sendResponse(exchange: HttpExchange, status: Int, response: String): Unit = {

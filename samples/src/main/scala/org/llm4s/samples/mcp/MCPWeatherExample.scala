@@ -3,26 +3,22 @@ package org.llm4s.samples.mcp
 import org.llm4s.mcp._
 import org.llm4s.toolapi._
 import org.llm4s.toolapi.tools._
+import org.slf4j.LoggerFactory
 import upickle.default._
 import scala.concurrent.duration._
 
 /**
- * Example demonstrating MCP integration with the llm4s tool system
+ * Example of direct low level interaction with MCP server via LLM4S tool registry.
  * 
- * This example shows:
- * - How to start and connect to an MCP server
- * - How to discover and use MCP tools
- * - How to combine local and MCP tools in a unified registry
- * 
- * Prerequisites:
- * - Start the (mock) MCPServer first
+ * Start the MCPServer first - see DemonstrationMCPServer documentation for instructions
+ * Then run: sbt "samples/runMain org.llm4s.samples.mcp.MCPWeatherExample" 
  */
 object MCPWeatherExample {
+  private val logger = LoggerFactory.getLogger(getClass)
   
   def main(args: Array[String]): Unit = {
-    println("🚀 MCP Weather Example")
-    println("📋 Demonstrating Model Context Protocol integration")
-    println()
+    logger.info("🚀 MCP Weather Example")
+    logger.info("📋 Demonstrating Model Context Protocol integration")
     
     // Create MCP server configuration 
     val serverConfig = MCPServerConfig.sse(
@@ -43,9 +39,9 @@ object MCPWeatherExample {
     
     // Show all available tools
     val allTools = mcpRegistry.getAllTools
-    println(s"\n📦 Available tools (${allTools.size} total):")
+    logger.info(s"📦 Available tools (${allTools.size} total):")
     allTools.zipWithIndex.foreach { case (tool, index) =>
-      println(s"   ${index + 1}. ${tool.name}: ${tool.description}")
+      logger.info(s"   ${index + 1}. ${tool.name}: ${tool.description}")
     }
     
     // Test the tools
@@ -54,15 +50,15 @@ object MCPWeatherExample {
     // Clean up
     mcpRegistry.closeMCPClients()
     
-    println("✨ Example completed!")
+    logger.info("✨ Example completed!")
   }
   
   // Run various tool tests to demonstrate functionality
   private def runToolTests(registry: MCPToolRegistry): Unit = {
-    println("\n🧪 Running tool tests:")
+    logger.info("🧪 Running tool tests:")
     
     // Test 1: Weather (should use local tool)
-    println("\n1️⃣ Testing weather tool:")
+    logger.info("1️⃣ Testing weather tool:")
     val weatherRequest = ToolCallRequest(
       functionName = "get_weather",
       arguments = ujson.Obj(
@@ -73,14 +69,14 @@ object MCPWeatherExample {
     
     registry.execute(weatherRequest) match {
       case Right(result) =>
-        println("   ✅ Success:")
-        println(s"   ${result.render(indent = 6)}")
+        logger.info("   ✅ Success:")
+        logger.info(s"   ${result.render(indent = 6)}")
       case Left(error) =>
-        println(s"   ❌ Failed: $error")
+        logger.error(s"   ❌ Failed: $error")
     }
     
     // Test 2: Currency conversion (MCP tool)
-    println("\n2️⃣ Testing currency conversion tool:")
+    logger.info("2️⃣ Testing currency conversion tool:")
     val currencyRequest = ToolCallRequest(
       functionName = "currency_convert",
       arguments = ujson.Obj(
@@ -92,15 +88,15 @@ object MCPWeatherExample {
     
     registry.execute(currencyRequest) match {
       case Right(result) =>
-        println("   ✅ Success:")
-        println(s"   ${result.render(indent = 6)}")
+        logger.info("   ✅ Success:")
+        logger.info(s"   ${result.render(indent = 6)}")
       case Left(error) =>
-        println(s"   ❌ Failed: $error")
+        logger.error(s"   ❌ Failed: $error")
     }
     
     
     // Test 3: Unknown tool (should fail gracefully)
-    println("\n4️⃣ Testing unknown tool (should fail):")
+    logger.info("4️⃣ Testing unknown tool (should fail):")
     val unknownRequest = ToolCallRequest(
       functionName = "nonexistent_tool",
       arguments = ujson.Obj()
@@ -108,9 +104,9 @@ object MCPWeatherExample {
     
     registry.execute(unknownRequest) match {
       case Right(_) =>
-        println("   🤔 Unexpected success")
+        logger.warn("   🤔 Unexpected success")
       case Left(error) =>
-        println(s"   ✅ Expected failure: $error")
+        logger.info(s"   ✅ Expected failure: $error")
     }
   }
 }

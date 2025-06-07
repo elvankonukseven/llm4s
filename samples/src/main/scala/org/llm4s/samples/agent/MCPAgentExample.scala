@@ -1,9 +1,10 @@
-package org.llm4s.samples.mcp
+package org.llm4s.samples.agent
 
 import org.llm4s.agent.Agent
 import org.llm4s.llmconnect.LLM
 import org.llm4s.mcp._
 import org.llm4s.toolapi.tools.WeatherTool
+import org.slf4j.LoggerFactory
 import scala.concurrent.duration._
 
 /**
@@ -12,15 +13,15 @@ import scala.concurrent.duration._
  * This example shows how an LLM agent can seamlessly use both local tools 
  * and remote MCP tools to complete complex multi-step tasks.
  *
- * Prerequisite:
- * - Start the MCPServer first
+ * Start the MCPServer first - see DemonstrationMCPServer documentation for instructions
+ * Then run: sbt "samples/runMain org.llm4s.samples.agent.MCPAgentExample"
  */
 object MCPAgentExample {
+  private val logger = LoggerFactory.getLogger(getClass)
   
   def main(args: Array[String]): Unit = {
-    println("🚀 MCP Agent Example")
-    println("📋 Demonstrating agent execution with MCP integration")
-    println()
+    logger.info("🚀 MCP Agent Example")
+    logger.info("📋 Demonstrating agent execution with MCP integration")
     
     // Get LLM client
     val client = LLM.client()
@@ -33,7 +34,7 @@ object MCPAgentExample {
     )
     
     // Set up tool registry with local and MCP tools
-    println("🔧 Setting up tool registry...")
+    logger.info("🔧 Setting up tool registry...")
     val localWeatherTool = WeatherTool.tool
     
     val mcpRegistry = new MCPToolRegistry(
@@ -44,9 +45,9 @@ object MCPAgentExample {
     
     // Show available tools
     val allTools = mcpRegistry.getAllTools
-    println(s"\n📦 Available tools (${allTools.size} total):")
+    logger.info(s"📦 Available tools (${allTools.size} total):")
     allTools.zipWithIndex.foreach { case (tool, index) =>
-      println(s"   ${index + 1}. ${tool.name}: ${tool.description}")
+      logger.info(s"   ${index + 1}. ${tool.name}: ${tool.description}")
     }
     
     // Create and run agent
@@ -54,7 +55,7 @@ object MCPAgentExample {
     
     mcpRegistry.closeMCPClients()
     
-    println("✨ Agent example completed!")
+    logger.info("✨ Agent example completed!")
   }
   
   // Run multiple agent queries to test different capabilities
@@ -64,7 +65,8 @@ object MCPAgentExample {
     // Define test queries
     val queries = Seq(
       "What's the weather like in Tokyo, and then convert 100 USD to EUR?",
-      "Could convert 43 british pounds into american dollars ? Also give me the exchange rate please "
+      "Could convert 43 british pounds into american dollars ? Also give me the exchange rate please ",
+      "Could you convert 50 turkish lira to euro ?"
     )
     
     // Execute each query with full tracing
@@ -72,10 +74,10 @@ object MCPAgentExample {
       val queryNum = index + 1
       val traceFile = s"mcp-agent-query-$queryNum.md"
       
-      println(s"\n${"=" * 60}")
-      println(s"🎯 Query $queryNum: $query")
-      println(s"📝 Trace: $traceFile")
-      println(s"${"=" * 60}")
+      logger.info(s"${"=" * 60}")
+      logger.info(s"🎯 Query $queryNum: $query")
+      logger.info(s"📝 Trace: $traceFile")
+      logger.info(s"${"=" * 60}")
       
       // Run the agent
       agent.run(
@@ -85,34 +87,34 @@ object MCPAgentExample {
         traceLogPath = Some(traceFile)
       ) match {
         case Right(finalState) =>
-          println(s"\n✅ Query $queryNum completed: ${finalState.status}")
+          logger.info(s"✅ Query $queryNum completed: ${finalState.status}")
           
           // Show final answer
           finalState.conversation.messages.reverse.find(_.role == "assistant") match {
             case Some(msg) =>
-              println("\n💬 Final Answer:")
-              println(s"${msg.content}")
+              logger.info("💬 Final Answer:")
+              logger.info(s"${msg.content}")
             case None => 
-              println("❌ No final answer found")
+              logger.warn("❌ No final answer found")
           }
           
           // Show execution summary
-          println(s"\n📊 Summary:")
-          println(s"   Steps: ${finalState.logs.size}")
-          println(s"   Messages: ${finalState.conversation.messages.size}")
+          logger.info(s"📊 Summary:")
+          logger.info(s"   Steps: ${finalState.logs.size}")
+          logger.info(s"   Messages: ${finalState.conversation.messages.size}")
           
           // Show tools used
           val toolCalls = finalState.logs.filter(_.contains("[tool]"))
           if (toolCalls.nonEmpty) {
-            println("   Tools used:")
+            logger.info("   Tools used:")
             toolCalls.foreach { log =>
               val toolName = log.split("\\s+").drop(1).headOption.getOrElse("unknown")
-              println(s"     - $toolName")
+              logger.info(s"     - $toolName")
             }
           }
           
         case Left(error) =>
-          println(s"❌ Query $queryNum failed: $error")
+          logger.error(s"❌ Query $queryNum failed: $error")
       }
       
       // Pause between queries
