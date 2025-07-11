@@ -2,274 +2,398 @@ package org.llm4s.samples.mcp
 
 import com.sun.net.httpserver.{HttpServer, HttpHandler, HttpExchange}
 import java.net.InetSocketAddress
-import java.io.OutputStream
 import org.slf4j.LoggerFactory
 import upickle.default.{read => upickleRead, write => upickleWrite}
 import org.llm4s.mcp._
 import ujson.{Obj, Str, Num, Arr}
 import scala.util.{Try, Success, Failure}
+import java.util.UUID
+import scala.collection.mutable
 
 /**
- * A Sample MCP Server for testing.
- * This server implements SSE interface in line with MCP Spec (2024-11-05) that follows JSON-RPC 2.0 protocol.
+ * MCP Server implementing the 2025-03-26 Streamable HTTP specification.
  * 
- * Runs on port 8080
- * To run: sbt "runMain org.llm4s.samples.mcp.DemonstrationMCPServer"
+ * Key features demonstrated:
+ * - Server-generated session management with Mcp-Session-Id headers  
+ * - Single /mcp endpoint supporting POST, GET, and DELETE methods
+ * - Content negotiation between application/json and text/event-stream
+ * - Automatic protocol version fallback to 2024-11-05
+ * - Stateless and stateful operation modes
+ * 
+ * Run: sbt "samples/runMain org.llm4s.samples.mcp.DemonstrationMCPServer"
  */
 object DemonstrationMCPServer {
   private val logger = LoggerFactory.getLogger(getClass)
-  
+
   def main(args: Array[String]): Unit = {
-    val port = 8080
-    val server = HttpServer.create(new InetSocketAddress(port), 0)
+    val server = HttpServer.create(new InetSocketAddress(8080), 0)
     
-    logger.info(s"🚀 Starting Proper MCP Server on http://localhost:$port")
-    logger.info("Protocol: JSON-RPC 2.0 over HTTP")
-    logger.info("Available tools: get_weather, currency_convert")
-    
-    // Handle MCP endpoint for JSON-RPC communication
-    server.createContext("/sse", new MCPHandler())
-    
+    server.createContext("/mcp", new MCPHandler())
     server.setExecutor(null)
     server.start()
+
+    logger.info("🚀 MCP Server started on http://localhost:8080/mcp")
+    logger.info("✨ 2025-03-26 Streamable HTTP with session management")
+    logger.info("🔧 Available tools: get_weather, currency_convert")
     
-    logger.info("✨ MCP Server ready!")
-    
-    // Keep server running
     Thread.currentThread().join()
   }
+
+  // Session management for 2025-03-26 specification
+  case class Session(
+    id: String, 
+    protocolVersion: String,
+    created: Long = System.currentTimeMillis()
+  )
   
+  object SessionStore {
+    private val sessions = mutable.Map[String, Session]()
+    
+    def createSession(protocolVersion: String): Session = {
+      val session = Session(UUID.randomUUID().toString, protocolVersion)
+      sessions(session.id) = session
+      logger.debug(s"🆔 Created session: ${session.id} for protocol $protocolVersion")
+      session
+    }
+    
+    def getSession(id: String): Option[Session] = sessions.get(id)
+    
+    def removeSession(id: String): Boolean = {
+      val existed = sessions.remove(id).isDefined
+      if (existed) logger.debug(s"🗑️ Removed session: $id")
+      existed
+    }
+    
+    def sessionCount: Int = sessions.size
+  }
+
   class MCPHandler extends HttpHandler {
     override def handle(exchange: HttpExchange): Unit = {
-      if (exchange.getRequestMethod == "POST") {
-        Try {
-          // Read JSON-RPC request
-          val requestBody = scala.io.Source.fromInputStream(exchange.getRequestBody).mkString
-          val jsonRpcRequest = upickleRead[JsonRpcRequest](requestBody)
-          
-          logger.debug(s"📨 Received JSON-RPC request: ${jsonRpcRequest.method} (id: ${jsonRpcRequest.id})")
-          
-          // Handle the JSON-RPC method
-          val response = handleJsonRpcMethod(jsonRpcRequest)
-          
-          // Send JSON-RPC response
-          sendJsonRpcResponse(exchange, response)
-          
-        } match {
-          case Success(_) => // Request handled successfully
-          case Failure(exception) =>
-            logger.error(s"❌ Error handling request: ${exception.getMessage}", exception)
-            val errorResponse = JsonRpcResponse(
-              id = "unknown",
-              error = Some(JsonRpcError(-32700, "Parse error", None))
-            )
-            sendJsonRpcResponse(exchange, errorResponse)
+      val method = exchange.getRequestMethod
+      logger.debug(s"📥 ${method} ${exchange.getRequestURI}")
+
+      try {
+        method match {
+          case "POST" => handlePOST(exchange)
+          case "GET" => handleGET(exchange) 
+          case "DELETE" => handleDELETE(exchange)
+          case _ => sendErrorResponse(exchange, 405, "Method not allowed")
         }
-      } else {
-        sendResponse(exchange, 405, "Method not allowed")
+      } catch {
+        case e: Exception =>
+          logger.error(s"❌ Unhandled error in ${method}: ${e.getMessage}", e)
+          sendErrorResponse(exchange, 500, "Internal server error")
       }
     }
-    
-    private def handleJsonRpcMethod(request: JsonRpcRequest): JsonRpcResponse = {
-      request.method match {
-        case "initialize" =>
-          logger.info("🤝 Handling initialization handshake")
-          val initResponse = InitializeResponse(
-            protocolVersion = "2024-11-05",
-            capabilities = MCPCapabilities(
-              tools = Some(Obj())
-            ),
-            serverInfo = ServerInfo(
-              name = "MCPServer",
-              version = "1.0.0"
-            )
-          )
+
+    private def handlePOST(exchange: HttpExchange): Unit = {
+      val result = for {
+        body <- Try(scala.io.Source.fromInputStream(exchange.getRequestBody).mkString)
+        request <- Try(upickleRead[JsonRpcRequest](body))
+      } yield request
+
+      result match {
+        case Success(request) => 
+          logger.debug(s"📨 Request: ${request.method} (id: ${request.id})")
           
-          JsonRpcResponse(
-            id = request.id,
-            result = Some(upickle.default.writeJs(initResponse))
-          )
+          val sessionId = Option(exchange.getRequestHeaders.getFirst("mcp-session-id"))
           
-        case "tools/list" =>
-          logger.info("📋 Handling tools list request")
-          val tools = Seq(
-            // Weather tool
-            MCPTool(
-              name = "get_weather",
-              description = "Get current weather for any city (MCP version)",
-              inputSchema = Obj(
-                "type" -> Str("object"),
-                "properties" -> Obj(
-                  "location" -> Obj(
-                    "type" -> Str("string"),
-                    "description" -> Str("City name (e.g., 'Paris, France')")
-                  ),
-                  "units" -> Obj(
-                    "type" -> Str("string"),
-                    "description" -> Str("Temperature units (celsius or fahrenheit)"),
-                    "enum" -> Arr(Str("celsius"), Str("fahrenheit"))
-                  )
-                ),
-                "required" -> Arr(Str("location"))
+          request.method match {
+            case "initialize" =>
+              handleInitialize(exchange, request)
+            case "tools/list" =>
+              handleWithSession(exchange, request, sessionId, handleToolsList)
+            case "tools/call" =>
+              handleWithSession(exchange, request, sessionId, handleToolsCall)
+            case _ =>
+              sendJsonRpcError(exchange, request.id, -32601, "Method not found")
+          }
+          
+        case Failure(e) =>
+          logger.error(s"❌ Failed to parse request: ${e.getMessage}")
+          sendJsonRpcError(exchange, "unknown", -32700, "Parse error")
+      }
+    }
+
+    private def handleInitialize(
+      exchange: HttpExchange, 
+      request: JsonRpcRequest
+    ): Unit = {
+      // Parse initialization request
+      val initRequest = request.params.flatMap { params =>
+        Try(upickleRead[InitializeRequest](params.toString)).toOption
+      }.getOrElse(InitializeRequest("2024-11-05", MCPCapabilities(), ClientInfo("unknown", "1.0")))
+
+      // Determine protocol version
+      val clientVersion = initRequest.protocolVersion
+      val protocolVersion = if (clientVersion.startsWith("2025-03-26")) "2025-03-26" else "2024-11-05"
+      
+      logger.info(s"🤝 Initializing with protocol: $protocolVersion")
+
+      // Create session for 2025-03-26 (server-generated session IDs)
+      val sessionOpt = if (protocolVersion == "2025-03-26") {
+        Some(SessionStore.createSession(protocolVersion))
+      } else None
+
+      // Prepare response
+      val response = JsonRpcResponse(
+        id = request.id,
+        result = Some(upickle.default.writeJs(InitializeResponse(
+          protocolVersion = protocolVersion,
+          capabilities = MCPCapabilities(tools = Some(Obj())),
+          serverInfo = ServerInfo(name = "Demo MCP Server", version = "2.0.0")
+        )))
+      )
+
+      // Send response with session header if applicable
+      sendJsonRpcResponse(exchange, response, sessionOpt.map(_.id))
+      
+      sessionOpt.foreach { session =>
+        logger.info(s"🆔 Session created: ${session.id} (total: ${SessionStore.sessionCount})")
+      }
+    }
+
+    private def handleWithSession(
+      exchange: HttpExchange,
+      request: JsonRpcRequest,
+      sessionId: Option[String],
+      handler: JsonRpcRequest => JsonRpcResponse
+    ): Unit = {
+      // For 2025-03-26, validate session if provided
+      sessionId.foreach { id =>
+        SessionStore.getSession(id) match {
+          case Some(session) => 
+            logger.debug(s"✅ Using session: ${session.id}")
+          case None =>
+            logger.warn(s"⚠️ Unknown session: $id")
+        }
+      }
+      
+      val response = handler(request)
+      sendJsonRpcResponse(exchange, response, sessionId)
+    }
+
+    private def handleGET(exchange: HttpExchange): Unit = {
+      // SSE endpoint for real-time communication (2025-03-26 feature)
+      val acceptHeader = Option(exchange.getRequestHeaders.getFirst("Accept")).getOrElse("")
+      
+      if (!acceptHeader.contains("text/event-stream")) {
+        sendErrorResponse(exchange, 406, "GET requires Accept: text/event-stream")
+        return
+      }
+
+      val sessionId = Option(exchange.getRequestHeaders.getFirst("mcp-session-id"))
+      
+      sessionId match {
+        case Some(id) if SessionStore.getSession(id).isDefined =>
+          logger.info(s"📡 Starting SSE stream for session: $id")
+          sendSSEStream(exchange, id)
+        case Some(id) =>
+          sendErrorResponse(exchange, 400, s"Invalid session: $id")
+        case None =>
+          sendErrorResponse(exchange, 400, "Missing mcp-session-id header for SSE")
+      }
+    }
+
+    private def handleDELETE(exchange: HttpExchange): Unit = {
+      // Session termination (2025-03-26 feature)
+      val sessionId = Option(exchange.getRequestHeaders.getFirst("mcp-session-id"))
+      
+      sessionId match {
+        case Some(id) =>
+          if (SessionStore.removeSession(id)) {
+            logger.info(s"🗑️ Session terminated: $id")
+            sendResponse(exchange, 200, "application/json", """{"status":"session_terminated"}""")
+          } else {
+            sendErrorResponse(exchange, 404, "Session not found")
+          }
+        case None =>
+          sendErrorResponse(exchange, 400, "Missing mcp-session-id header")
+      }
+    }
+
+    private def handleToolsList(request: JsonRpcRequest): JsonRpcResponse = {
+      logger.info("📋 Listing tools")
+      
+      val tools = Seq(
+        MCPTool(
+          name = "get_weather",
+          description = "Get current weather for any city",
+          inputSchema = Obj(
+            "type" -> Str("object"),
+            "properties" -> Obj(
+              "city" -> Obj(
+                "type" -> Str("string"),
+                "description" -> Str("City name")
               )
             ),
-            
-            // Currency conversion tool
-            MCPTool(
-              name = "currency_convert",
-              description = "Convert money between currencies",
-              inputSchema = Obj(
-                "type" -> Str("object"),
-                "properties" -> Obj(
-                  "amount" -> Obj(
-                    "type" -> Str("number"),
-                    "description" -> Str("Amount to convert")
-                  ),
-                  "from" -> Obj(
-                    "type" -> Str("string"),
-                    "description" -> Str("Source currency (e.g., 'USD', 'EUR', 'GBP')")
-                  ),
-                  "to" -> Obj(
-                    "type" -> Str("string"),
-                    "description" -> Str("Target currency (e.g., 'USD', 'EUR', 'GBP')")
-                  )
-                ),
-                "required" -> Arr(Str("amount"), Str("from"), Str("to"))
-              )
-            )
-            
+            "required" -> Arr(Str("city"))
           )
-          
-          val toolsResponse = ToolsListResponse(tools)
-          
-          JsonRpcResponse(
-            id = request.id,
-            result = Some(upickle.default.writeJs(toolsResponse))
+        ),
+        MCPTool(
+          name = "currency_convert",
+          description = "Convert between currencies",
+          inputSchema = Obj(
+            "type" -> Str("object"),
+            "properties" -> Obj(
+              "amount" -> Obj("type" -> Str("number")),
+              "from_currency" -> Obj("type" -> Str("string")),
+              "to_currency" -> Obj("type" -> Str("string"))
+            ),
+            "required" -> Arr(Str("amount"), Str("from_currency"), Str("to_currency"))
           )
+        )
+      )
+      
+      JsonRpcResponse(
+        id = request.id,
+        result = Some(upickle.default.writeJs(ToolsListResponse(tools)))
+      )
+    }
+
+    private def handleToolsCall(request: JsonRpcRequest): JsonRpcResponse = {
+      val callRequest = request.params.flatMap { params =>
+        Try(upickleRead[ToolsCallRequest](params.toString)).toOption
+      }
+      
+      callRequest match {
+        case Some(ToolsCallRequest(toolName, args)) =>
+          logger.info(s"🔧 Calling tool: $toolName")
           
-        case "tools/call" =>
-          logger.info("🔧 Handling tool call request")
-          request.params match {
-            case Some(params) =>
-              Try {
-                val toolCallRequest = upickleRead[ToolsCallRequest](params.toString)
-                val toolName = toolCallRequest.name
-                val arguments = toolCallRequest.arguments.getOrElse(Obj())
-                
-                logger.debug(s"   Tool: $toolName")
-                logger.debug(s"   Args: ${arguments.render()}")
-                
-                val result = executeTool(toolName, arguments)
-                val content = Seq(MCPContent("text", result.render()))
-                val toolResponse = ToolsCallResponse(content)
-                
-                JsonRpcResponse(
-                  id = request.id,
-                  result = Some(upickle.default.writeJs(toolResponse))
-                )
-              } match {
-                case Success(response) => response
-                case Failure(e) =>
-                  logger.error(s"   Error parsing tool call: ${e.getMessage}", e)
-                  JsonRpcResponse(
-                    id = request.id,
-                    error = Some(JsonRpcError(-32602, "Invalid params", Some(Str(e.getMessage))))
-                  )
+                    toolName match {
+            case "get_weather" =>
+              val city = args match {
+                case Some(ujson.Obj(obj)) => obj.get("city") match {
+                  case Some(ujson.Str(city)) => city
+                  case Some(value) => value.toString
+                  case None => "Unknown"
+                }
+                case _ => "Unknown"
               }
-              
-            case None =>
               JsonRpcResponse(
                 id = request.id,
-                error = Some(JsonRpcError(-32602, "Invalid params", None))
+                result = Some(upickle.default.writeJs(ToolsCallResponse(
+                  content = Seq(MCPContent(
+                    `type` = "text",
+                    text = s"🌤️ Weather in $city: 20°C, partly cloudy (MCP server response)"
+                  ))
+                )))
+              )
+              
+             case "currency_convert" =>
+               args match {
+                 case Some(ujson.Obj(obj)) =>
+                   val amount = obj.get("amount") match {
+                     case Some(ujson.Num(value)) => value
+                     case Some(value) => value.toString.toDoubleOption.getOrElse(0.0)
+                     case None => 0.0
+                   }
+                   val from = obj.get("from_currency") match {
+                     case Some(ujson.Str(value)) => value
+                     case Some(value) => value.toString
+                     case None => "USD"
+                   }
+                   val to = obj.get("to_currency") match {
+                     case Some(ujson.Str(value)) => value
+                     case Some(value) => value.toString
+                     case None => "EUR"
+                   }
+                   val converted = amount * 0.85 // Mock conversion rate
+                   
+                   JsonRpcResponse(
+                     id = request.id,
+                     result = Some(upickle.default.writeJs(ToolsCallResponse(
+                       content = Seq(MCPContent(
+                         `type` = "text", 
+                         text = s"💱 $amount $from = ${converted} $to"
+                       ))
+                     )))
+                   )
+                 case _ =>
+                   JsonRpcResponse(
+                     id = request.id,
+                     error = Some(JsonRpcError(-32602, "Invalid currency conversion arguments", None))
+                   )
+               }
+              
+            case _ =>
+              JsonRpcResponse(
+                id = request.id,
+                error = Some(JsonRpcError(-32602, s"Unknown tool: $toolName", None))
               )
           }
           
-        case _ =>
-          logger.warn(s"❓ Unknown method: ${request.method}")
+        case None =>
           JsonRpcResponse(
             id = request.id,
-            error = Some(JsonRpcError(-32601, "Method not found", None))
+            error = Some(JsonRpcError(-32602, "Invalid tool call parameters", None))
           )
       }
     }
-    
-    private def executeTool(toolName: String, arguments: ujson.Value): ujson.Value = {
-      toolName match {
-        case "get_weather" =>
-          val location = arguments("location").str
-          val units = arguments.obj.get("units").map(_.str).getOrElse("celsius")
-          val temp = if (units == "fahrenheit") 70 else 20
-          
-          Obj(
-            "location" -> Str(location),
-            "temperature" -> Num(temp),
-            "units" -> Str(units),
-            "conditions" -> Str("Partly cloudy (from MCP server)"),
-            "humidity" -> Str("65%"),
-            "wind" -> Str("8 mph"),
-            "source" -> Str("MCP server")
-          )
-          
-        case "currency_convert" =>
-          val amount = arguments("amount").num
-          val from = arguments("from").str.toUpperCase
-          val to = arguments("to").str.toUpperCase
-          
-          // Simple exchange rate lookup table
-          val exchangeRates = Map(
-            ("USD", "EUR") -> 0.85,
-            ("EUR", "USD") -> 1.18,
-            ("USD", "GBP") -> 0.75,
-            ("GBP", "USD") -> 1.33,
-            ("EUR", "GBP") -> 0.88,
-            ("GBP", "EUR") -> 1.14,
-            ("USD", "JPY") -> 110.0,
-            ("JPY", "USD") -> 0.009
-          )
-          
-          exchangeRates.get((from, to)) match {
-            case Some(rate) =>
-              // Success response
-              Obj(
-                "success" -> ujson.True,
-                "original_amount" -> Num(amount),
-                "from_currency" -> Str(from),
-                "to_currency" -> Str(to),
-                "converted_amount" -> Num(amount * rate),
-                "exchange_rate" -> Num(rate),
-                "source" -> Str("MCP server currency API")
-              )
-            case None =>
-              // Error response for unsupported pairs
-              Obj(
-                "success" -> ujson.False,
-                "error" -> Str("UNSUPPORTED_CURRENCY_PAIR"),
-                "message" -> Str(s"Currency conversion from $from to $to is not supported"),
-                "from_currency" -> Str(from),
-                "to_currency" -> Str(to),
-                "supported_currencies" -> Arr(Str("USD"), Str("EUR"), Str("GBP"), Str("JPY")),
-                "source" -> Str("MCP server currency API")
-              )
-          }
-        
-        case _ =>
-          Obj("error" -> Str(s"Unknown tool: $toolName"))
-      }
-    }
-    
-    private def sendJsonRpcResponse(exchange: HttpExchange, response: JsonRpcResponse): Unit = {
-      val responseJson = upickleWrite(response)
-      exchange.getResponseHeaders.set("Content-Type", "application/json")
-      sendResponse(exchange, 200, responseJson)
+
+    private def sendJsonRpcResponse(
+      exchange: HttpExchange, 
+      response: JsonRpcResponse, 
+      sessionId: Option[String] = None
+    ): Unit = {
+      val json = upickleWrite(response)
       
-      logger.debug(s"📤 Sent JSON-RPC response (id: ${response.id})")
+      // Set session header if provided (before sendResponseHeaders)
+      sessionId.foreach(id => exchange.getResponseHeaders.set("mcp-session-id", id))
+      
+      sendResponse(exchange, 200, "application/json", json)
     }
-    
-    private def sendResponse(exchange: HttpExchange, status: Int, response: String): Unit = {
-      exchange.sendResponseHeaders(status, response.length)
-      val os: OutputStream = exchange.getResponseBody
-      os.write(response.getBytes)
-      os.close()
+
+    private def sendJsonRpcError(
+      exchange: HttpExchange, 
+      id: String, 
+      code: Int, 
+      message: String
+    ): Unit = {
+      val error = JsonRpcResponse(
+        id = id,
+        error = Some(JsonRpcError(code, message, None))
+      )
+      sendJsonRpcResponse(exchange, error)
+    }
+
+    private def sendSSEStream(exchange: HttpExchange, sessionId: String): Unit = {
+      exchange.getResponseHeaders.set("Content-Type", "text/event-stream")
+      exchange.getResponseHeaders.set("Cache-Control", "no-cache")
+      exchange.getResponseHeaders.set("Connection", "keep-alive")
+      exchange.getResponseHeaders.set("mcp-session-id", sessionId)
+      
+      val sseData = 
+        ": SSE stream opened\n\n" +
+        "data: {\"jsonrpc\":\"2.0\",\"method\":\"notification/stream_started\",\"params\":{\"session\":\"" + sessionId + "\"}}\n\n"
+      
+      sendResponse(exchange, 200, "text/event-stream", sseData)
+    }
+
+    private def sendErrorResponse(exchange: HttpExchange, code: Int, message: String): Unit = {
+      sendResponse(exchange, code, "text/plain", message)
+    }
+
+    private def sendResponse(
+      exchange: HttpExchange, 
+      statusCode: Int, 
+      contentType: String, 
+      body: String
+    ): Unit = {
+      val bytes = body.getBytes("UTF-8")
+      
+      exchange.getResponseHeaders.set("Content-Type", contentType)
+      exchange.getResponseHeaders.set("Content-Length", bytes.length.toString)
+      
+      exchange.sendResponseHeaders(statusCode, bytes.length.toLong)
+      
+      val outputStream = exchange.getResponseBody
+      try {
+        outputStream.write(bytes)
+        outputStream.flush()
+      } finally {
+        outputStream.close()
+      }
     }
   }
-}
+} 

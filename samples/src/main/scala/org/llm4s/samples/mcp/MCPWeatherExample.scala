@@ -4,30 +4,31 @@ import org.llm4s.mcp._
 import org.llm4s.toolapi._
 import org.llm4s.toolapi.tools._
 import org.slf4j.LoggerFactory
-import upickle.default._
 import scala.concurrent.duration._
 
 /**
- * Example of direct low level interaction with MCP server via LLM4S tool registry.
+ * Example demonstrating basic MCP tool usage with automatic fallback
  * 
- * Start the MCPServer first - see DemonstrationMCPServer documentation for instructions
- * Then run: sbt "samples/runMain org.llm4s.samples.mcp.MCPWeatherExample" 
+ * This example shows how to use MCP tools directly via the tool registry.
+ * The client automatically detects the best transport protocol with fallback.
+ * 
+ * Start the MCPServer first: sbt "samples/runMain org.llm4s.samples.mcp.DemonstrationMCPServer"
+ * Then run: sbt "samples/runMain org.llm4s.samples.mcp.MCPWeatherExample"
  */
 object MCPWeatherExample {
   private val logger = LoggerFactory.getLogger(getClass)
   
   def main(args: Array[String]): Unit = {
-    logger.info("🚀 MCP Weather Example")
-    logger.info("📋 Demonstrating Model Context Protocol integration")
+    logger.info("🚀 MCP Weather Example - Basic MCP Tool Usage")
     
-    // Create MCP server configuration 
-    val serverConfig = MCPServerConfig.sse(
-      name = "test-server",
-      url = "http://localhost:8080",
+    // Create MCP server configuration (automatically tries latest protocol with fallback)
+    val serverConfig = MCPServerConfig.streamableHTTP(
+      name = "weather-server",
+      url = "http://localhost:8080/mcp",
       timeout = 30.seconds
     )
     
-    // Create local weather tool 
+    // Create local weather tool for comparison
     val localWeatherTool = WeatherTool.tool
     
     // Create MCP registry combining local and MCP tools
@@ -41,72 +42,66 @@ object MCPWeatherExample {
     val allTools = mcpRegistry.getAllTools
     logger.info(s"📦 Available tools (${allTools.size} total):")
     allTools.zipWithIndex.foreach { case (tool, index) =>
-      logger.info(s"   ${index + 1}. ${tool.name}: ${tool.description}")
+      val source = if (tool.description.contains("local")) "local" else "MCP"
+      logger.info(s"   ${index + 1}. ${tool.name} ($source): ${tool.description}")
     }
+    logger.info("ℹ️  Note: Local tools take precedence over MCP tools with same name")
     
     // Test the tools
     runToolTests(mcpRegistry)
     
     // Clean up
     mcpRegistry.closeMCPClients()
-    
     logger.info("✨ Example completed!")
   }
   
-  // Run various tool tests to demonstrate functionality
   private def runToolTests(registry: MCPToolRegistry): Unit = {
-    logger.info("🧪 Running tool tests:")
+    logger.info("🧪 Testing MCP tools:")
     
-    // Test 1: Weather (should use local tool)
-    logger.info("1️⃣ Testing weather tool:")
-    val weatherRequest = ToolCallRequest(
+    // Test 1: Weather tool (local version)
+    logger.info("1️⃣ Testing local weather tool:")
+    val localWeatherRequest = ToolCallRequest(
       functionName = "get_weather",
       arguments = ujson.Obj(
-        "location" -> ujson.Str("Paris, France"),
+        "location" -> ujson.Str("London, UK"),
         "units" -> ujson.Str("celsius")
       )
     )
     
-    registry.execute(weatherRequest) match {
-      case Right(result) =>
-        logger.info("   ✅ Success:")
-        logger.info(s"   ${result.render(indent = 6)}")
-      case Left(error) =>
-        logger.error(s"   ❌ Failed: $error")
-    }
+    executeAndLog(registry, localWeatherRequest, "   ")
     
     // Test 2: Currency conversion (MCP tool)
-    logger.info("2️⃣ Testing currency conversion tool:")
+    logger.info("2️⃣ Testing MCP currency conversion:")
     val currencyRequest = ToolCallRequest(
       functionName = "currency_convert",
       arguments = ujson.Obj(
         "amount" -> ujson.Num(100),
-        "from" -> ujson.Str("EUR"),
-        "to" -> ujson.Str("USD")
+        "from" -> ujson.Str("USD"),
+        "to" -> ujson.Str("EUR")
       )
     )
     
-    registry.execute(currencyRequest) match {
-      case Right(result) =>
-        logger.info("   ✅ Success:")
-        logger.info(s"   ${result.render(indent = 6)}")
-      case Left(error) =>
-        logger.error(s"   ❌ Failed: $error")
-    }
+    executeAndLog(registry, currencyRequest, "   ")
     
-    
-    // Test 3: Unknown tool (should fail gracefully)
-    logger.info("4️⃣ Testing unknown tool (should fail):")
-    val unknownRequest = ToolCallRequest(
-      functionName = "nonexistent_tool",
-      arguments = ujson.Obj()
+    // Test 3: Weather tool (local tool will be used due to name conflict)
+    logger.info("3️⃣ Testing weather tool (local tool takes precedence):")
+    val mcpWeatherRequest = ToolCallRequest(
+      functionName = "get_weather",
+      arguments = ujson.Obj(
+        "location" -> ujson.Str("Tokyo, Japan"),
+        "units" -> ujson.Str("celsius")
+      )
     )
     
-    registry.execute(unknownRequest) match {
-      case Right(_) =>
-        logger.warn("   🤔 Unexpected success")
+    executeAndLog(registry, mcpWeatherRequest, "   ")
+  }
+  
+  private def executeAndLog(registry: MCPToolRegistry, request: ToolCallRequest, indent: String): Unit = {
+    registry.execute(request) match {
+      case Right(result) =>
+        logger.info(s"${indent}✅ Success: ${result.render()}")
       case Left(error) =>
-        logger.info(s"   ✅ Expected failure: $error")
+        logger.error(s"${indent}❌ Failed: $error")
     }
   }
 }
