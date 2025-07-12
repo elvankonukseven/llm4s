@@ -5,19 +5,21 @@ import java.net.InetSocketAddress
 import org.slf4j.LoggerFactory
 import upickle.default.{read => upickleRead, write => upickleWrite}
 import org.llm4s.mcp._
-import ujson.{Obj, Str, Num, Arr}
+import ujson.{Obj, Str, Arr}
 import scala.util.{Try, Success, Failure}
 import java.util.UUID
 import scala.collection.mutable
 
 /**
- * MCP Server implementing the 2025-03-26 Streamable HTTP specification.
+ * MCP Server implementing the 2025-06-18 Streamable HTTP specification.
  * 
  * Key features demonstrated:
- * - Server-generated session management with Mcp-Session-Id headers  
+ * - Server-generated session management with mcp-session-id headers 
  * - Single /mcp endpoint supporting POST, GET, and DELETE methods
  * - Content negotiation between application/json and text/event-stream
+ * - MCP-Protocol-Version header handling 
  * - Automatic protocol version fallback to 2024-11-05
+ * - Structured tool output with resource links 
  * - Stateless and stateful operation modes
  * 
  * Run: sbt "samples/runMain org.llm4s.samples.mcp.DemonstrationMCPServer"
@@ -33,13 +35,13 @@ object DemonstrationMCPServer {
     server.start()
 
     logger.info("🚀 MCP Server started on http://localhost:8080/mcp")
-    logger.info("✨ 2025-03-26 Streamable HTTP with session management")
+    logger.info("✨ 2025-06-18 Streamable HTTP with session management")
     logger.info("🔧 Available tools: get_weather, currency_convert")
     
     Thread.currentThread().join()
   }
 
-  // Session management for 2025-03-26 specification
+  // Session management for 2025-06-18 and 2025-03-26 specifications
   case class Session(
     id: String, 
     protocolVersion: String,
@@ -96,6 +98,22 @@ object DemonstrationMCPServer {
         case Success(request) => 
           logger.debug(s"📨 Request: ${request.method} (id: ${request.id})")
           
+          // Check MCP-Protocol-Version header for non-initialize requests 
+          if (request.method != "initialize") {
+            val protocolVersion = Option(exchange.getRequestHeaders.getFirst("MCP-Protocol-Version"))
+            protocolVersion match {
+              case Some(version) => 
+                logger.debug(s"🔖 Protocol version header: $version")
+                if (!version.startsWith("2024-") && !version.startsWith("2025-")) {
+                  sendJsonRpcError(exchange, request.id, MCPErrorCodes.INVALID_PROTOCOL_VERSION, s"Unsupported protocol version: $version")
+                  return
+                }
+              case None =>
+                logger.warn(s"⚠️ Missing MCP-Protocol-Version header for ${request.method}")
+                // Could be lenient here or require it - spec says MUST for HTTP
+            }
+          }
+          
           val sessionId = Option(exchange.getRequestHeaders.getFirst("mcp-session-id"))
           
           request.method match {
@@ -106,12 +124,12 @@ object DemonstrationMCPServer {
             case "tools/call" =>
               handleWithSession(exchange, request, sessionId, handleToolsCall)
             case _ =>
-              sendJsonRpcError(exchange, request.id, -32601, "Method not found")
+              sendJsonRpcError(exchange, request.id, MCPErrorCodes.METHOD_NOT_FOUND, "Method not found")
           }
           
         case Failure(e) =>
           logger.error(s"❌ Failed to parse request: ${e.getMessage}")
-          sendJsonRpcError(exchange, "unknown", -32700, "Parse error")
+          sendJsonRpcError(exchange, "unknown", MCPErrorCodes.PARSE_ERROR, "Parse error")
       }
     }
 
@@ -124,14 +142,18 @@ object DemonstrationMCPServer {
         Try(upickleRead[InitializeRequest](params.toString)).toOption
       }.getOrElse(InitializeRequest("2024-11-05", MCPCapabilities(), ClientInfo("unknown", "1.0")))
 
-      // Determine protocol version
+      // Determine protocol version - support latest 2025-06-18 spec
       val clientVersion = initRequest.protocolVersion
-      val protocolVersion = if (clientVersion.startsWith("2025-03-26")) "2025-03-26" else "2024-11-05"
+      val protocolVersion = clientVersion match {
+        case v if v.startsWith("2025-06-18") => "2025-06-18"
+        case v if v.startsWith("2025-03-26") => "2025-03-26" 
+        case _ => "2024-11-05" // fallback for older clients
+      }
       
       logger.info(s"🤝 Initializing with protocol: $protocolVersion")
 
-      // Create session for 2025-03-26 (server-generated session IDs)
-      val sessionOpt = if (protocolVersion == "2025-03-26") {
+      // Create session for modern protocols (server-generated session IDs)
+      val sessionOpt = if (protocolVersion == "2025-06-18" || protocolVersion == "2025-03-26") {
         Some(SessionStore.createSession(protocolVersion))
       } else None
 
@@ -159,7 +181,7 @@ object DemonstrationMCPServer {
       sessionId: Option[String],
       handler: JsonRpcRequest => JsonRpcResponse
     ): Unit = {
-      // For 2025-03-26, validate session if provided
+      // For modern protocols (2025-06-18/2025-03-26), validate session if provided
       sessionId.foreach { id =>
         SessionStore.getSession(id) match {
           case Some(session) => 
@@ -174,7 +196,7 @@ object DemonstrationMCPServer {
     }
 
     private def handleGET(exchange: HttpExchange): Unit = {
-      // SSE endpoint for real-time communication (2025-03-26 feature)
+      // SSE endpoint for real-time communication (2025-06-18/2025-03-26 feature)
       val acceptHeader = Option(exchange.getRequestHeaders.getFirst("Accept")).getOrElse("")
       
       if (!acceptHeader.contains("text/event-stream")) {
@@ -196,7 +218,7 @@ object DemonstrationMCPServer {
     }
 
     private def handleDELETE(exchange: HttpExchange): Unit = {
-      // Session termination (2025-03-26 feature)
+      // Session termination (2025-06-18/2025-03-26 feature)
       val sessionId = Option(exchange.getRequestHeaders.getFirst("mcp-session-id"))
       
       sessionId match {
@@ -222,12 +244,17 @@ object DemonstrationMCPServer {
           inputSchema = Obj(
             "type" -> Str("object"),
             "properties" -> Obj(
-              "city" -> Obj(
+              "location" -> Obj(
                 "type" -> Str("string"),
-                "description" -> Str("City name")
+                "description" -> Str("City and country e.g. Bogotá, Colombia")
+              ),
+              "units" -> Obj(
+                "type" -> Str("string"),
+                "description" -> Str("Units the temperature will be returned in."),
+                "enum" -> Arr(Str("celsius"), Str("fahrenheit"))
               )
             ),
-            "required" -> Arr(Str("city"))
+            "required" -> Arr(Str("location"), Str("units"))
           )
         ),
         MCPTool(
@@ -252,81 +279,91 @@ object DemonstrationMCPServer {
     }
 
     private def handleToolsCall(request: JsonRpcRequest): JsonRpcResponse = {
-      val callRequest = request.params.flatMap { params =>
-        Try(upickleRead[ToolsCallRequest](params.toString)).toOption
-      }
+      val toolName = request.params.flatMap(_.obj.get("name")).map(_.str).getOrElse("")
+      val arguments = request.params.flatMap(_.obj.get("arguments"))
       
-      callRequest match {
-        case Some(ToolsCallRequest(toolName, args)) =>
-          logger.info(s"🔧 Calling tool: $toolName")
+      logger.info(s"🔧 Executing tool: $toolName")
+      
+      toolName match {
+        case "get_weather" =>
+          val location = arguments.flatMap(_.obj.get("location")).map(_.str).getOrElse("Unknown")
+          val units = arguments.flatMap(_.obj.get("units")).map(_.str).getOrElse("celsius")
           
-                    toolName match {
-            case "get_weather" =>
-              val city = args match {
-                case Some(ujson.Obj(obj)) => obj.get("city") match {
-                  case Some(ujson.Str(city)) => city
-                  case Some(value) => value.toString
-                  case None => "Unknown"
-                }
-                case _ => "Unknown"
-              }
-              JsonRpcResponse(
-                id = request.id,
-                result = Some(upickle.default.writeJs(ToolsCallResponse(
-                  content = Seq(MCPContent(
-                    `type` = "text",
-                    text = s"🌤️ Weather in $city: 20°C, partly cloudy (MCP server response)"
-                  ))
-                )))
-              )
-              
-             case "currency_convert" =>
-               args match {
-                 case Some(ujson.Obj(obj)) =>
-                   val amount = obj.get("amount") match {
-                     case Some(ujson.Num(value)) => value
-                     case Some(value) => value.toString.toDoubleOption.getOrElse(0.0)
-                     case None => 0.0
-                   }
-                   val from = obj.get("from_currency") match {
-                     case Some(ujson.Str(value)) => value
-                     case Some(value) => value.toString
-                     case None => "USD"
-                   }
-                   val to = obj.get("to_currency") match {
-                     case Some(ujson.Str(value)) => value
-                     case Some(value) => value.toString
-                     case None => "EUR"
-                   }
-                   val converted = amount * 0.85 // Mock conversion rate
-                   
-                   JsonRpcResponse(
-                     id = request.id,
-                     result = Some(upickle.default.writeJs(ToolsCallResponse(
-                       content = Seq(MCPContent(
-                         `type` = "text", 
-                         text = s"💱 $amount $from = ${converted} $to"
-                       ))
-                     )))
-                   )
-                 case _ =>
-                   JsonRpcResponse(
-                     id = request.id,
-                     error = Some(JsonRpcError(-32602, "Invalid currency conversion arguments", None))
-                   )
-               }
-              
-            case _ =>
-              JsonRpcResponse(
-                id = request.id,
-                error = Some(JsonRpcError(-32602, s"Unknown tool: $toolName", None))
-              )
-          }
+          // Return structured content with enhanced MCPContent format
+          val response = ToolsCallResponse(
+            content = Seq(MCPContent(
+              `type` = "text",
+              text = Some(s"🌤️ Weather in $location: 20°C, partly cloudy (MCP server response)"),
+              resource = None,
+              annotations = Some(ujson.Obj(
+                "location" -> ujson.Str(location),
+                "units" -> ujson.Str(units),
+                "temperature" -> ujson.Num(20),
+                "condition" -> ujson.Str("partly cloudy"),
+                "source" -> ujson.Str("mcp-demo-server")
+              ))
+            ))
+          )
           
-        case None =>
           JsonRpcResponse(
             id = request.id,
-            error = Some(JsonRpcError(-32602, "Invalid tool call parameters", None))
+            result = Some(upickle.default.writeJs(response))
+          )
+          
+        case "currency_convert" =>
+          val amount = arguments.flatMap(_.obj.get("amount")).map(_.num).getOrElse(0.0)
+          val from = arguments.flatMap(_.obj.get("from_currency")).map(_.str)
+            .orElse(arguments.flatMap(_.obj.get("from")).map(_.str))
+            .getOrElse("USD")
+          val to = arguments.flatMap(_.obj.get("to_currency")).map(_.str)
+            .orElse(arguments.flatMap(_.obj.get("to")).map(_.str))
+            .getOrElse("EUR")
+          
+          val exchangeRate = 0.85
+          val convertedAmount = amount * exchangeRate
+          
+          // Return structured content with resource reference example
+          val response = ToolsCallResponse(
+            content = Seq(
+              MCPContent(
+                `type` = "text",
+                text = Some(s"💱 $amount $from = $convertedAmount $to"),
+                resource = None,
+                annotations = Some(ujson.Obj(
+                  "original_amount" -> ujson.Num(amount),
+                  "converted_amount" -> ujson.Num(convertedAmount),
+                  "exchange_rate" -> ujson.Num(exchangeRate),
+                  "from_currency" -> ujson.Str(from),
+                  "to_currency" -> ujson.Str(to),
+                  "source" -> ujson.Str("mcp-demo-server")
+                ))
+              ),
+              // Example of resource reference in tool output (PR #603)
+              MCPContent(
+                `type` = "resource",
+                text = None,
+                resource = Some(ResourceReference(
+                  uri = s"mcp://demo/exchange-rate/$from-$to",
+                  `type` = Some("application/json")
+                )),
+                annotations = Some(ujson.Obj(
+                  "description" -> ujson.Str("Exchange rate resource"),
+                  "timestamp" -> ujson.Str(java.time.Instant.now().toString)
+                ))
+              )
+            )
+          )
+          
+          JsonRpcResponse(
+            id = request.id,
+            result = Some(upickle.default.writeJs(response))
+          )
+          
+        case _ =>
+          logger.warn(s"❌ Unknown tool: $toolName")
+          JsonRpcResponse(
+            id = request.id,
+            error = Some(JsonRpcError(MCPErrorCodes.TOOL_NOT_FOUND, s"Tool not found: $toolName", None))
           )
       }
     }

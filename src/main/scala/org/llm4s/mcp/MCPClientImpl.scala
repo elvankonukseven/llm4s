@@ -10,14 +10,14 @@ import scala.util.{ Failure, Success, Try }
 /**
  * Implementation of MCP client that connects to and communicates with MCP servers.
  * Handles JSON-RPC communication, tool discovery, and execution delegation.
- * Supports both 2025-03-26 (Streamable HTTP) and 2024-11-05 (HTTP+SSE) transports.
+ * Supports both 2025-06-18 (Streamable HTTP) and 2024-11-05 (HTTP+SSE) transports.
  */
 class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
   private val logger      = LoggerFactory.getLogger(getClass)
   private var transport: Option[MCPTransportImpl] = None
   private val requestId   = new AtomicLong(0)
   private var initialized = false
-  private var protocolVersion = "2025-03-26" // Start with latest version
+  private var protocolVersion = "2025-06-18" // Updated to latest version
 
   logger.info(s"MCPClientImpl created for server: ${config.name}")
 
@@ -42,17 +42,17 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
 
   // Unified HTTP transport logic: try Streamable HTTP first, fallback to SSE
   private def tryHttpTransportWithFallback(url: String, name: String): Either[String, MCPTransportImpl] = {
-    // Try new 2025-03-26 Streamable HTTP transport first
-    logger.info(s"Attempting to connect using Streamable HTTP transport (2025-03-26) to $url")
+    // Try new 2025-06-18 Streamable HTTP transport first
+    logger.info(s"Attempting to connect using Streamable HTTP transport (2025-06-18) to $url")
     val newTransport = new StreamableHTTPTransportImpl(url, name)
     
     // Test with a simple initialize request
-    val testRequest = createInitializeRequest("2025-03-26")
+    val testRequest = createInitializeRequest("2025-06-18")
     newTransport.sendRequest(testRequest) match {
       case Right(_) =>
-        logger.info(s"Successfully connected using Streamable HTTP transport (2025-03-26)")
+        logger.info(s"Successfully connected using Streamable HTTP transport (2025-06-18)")
         transport = Some(newTransport)
-        protocolVersion = "2025-03-26"
+        protocolVersion = "2025-06-18"
         Right(newTransport)
       case Left(error) if error.contains("405") || error.contains("404") =>
         // Server doesn't support new transport, try fallback

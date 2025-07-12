@@ -37,7 +37,7 @@ case class MCPSession(
   lastEventId: Option[String] = None
 )
 
-// Streamable HTTP transport implementation (2025-03-26 spec)
+// Streamable HTTP transport implementation (2025-06-18 spec)
 class StreamableHTTPTransportImpl(url: String, override val name: String) extends MCPTransportImpl {
   private val logger = LoggerFactory.getLogger(getClass)
   private val requestId = new AtomicLong(0)
@@ -52,18 +52,8 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
       val requestJson = write(request)
       logger.debug(s"StreamableHTTPTransport($name) request JSON: $requestJson")
 
-      // Build headers according to Streamable HTTP spec
-      val baseHeaders = Map(
-        "Content-Type" -> "application/json",
-        "Accept" -> "application/json, text/event-stream" // Must support both response types
-      )
-      
-      // Add MCP session header if we have one (except for initialize)
-      val headers = if (request.method == "initialize") {
-        baseHeaders // No session header on initialize request
-      } else {
-        mcpSessionId.fold(baseHeaders)(sessionId => baseHeaders + ("Mcp-Session-Id" -> sessionId))
-      }
+      // Build headers according to 2025-06-18 spec 
+      val headers = buildHeaders(request)
 
       // POST to MCP endpoint (single endpoint, no /sse suffix)
       val response = requests.post(
@@ -76,13 +66,16 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
 
       // Handle session management during initialization according to MCP spec : the server may or may not include a session id
       if (request.method == "initialize" && response.statusCode >= 200 && response.statusCode < 300) {
-        // Look for Mcp-Session-Id header in response (standard MCP header)
-        val sessionIdOpt = response.headers.get("Mcp-Session-Id")
+        // Look for mcp-session-id header in response (lowercase per spec)
+        val sessionIdOpt = response.headers.get("mcp-session-id")
         
         sessionIdOpt.foreach { sessionIdValue =>
           // Handle both String and Seq[String] types from requests library
-          val sessionId = sessionIdValue.toString.trim
-          if (sessionId.nonEmpty) {
+          val sessionId = sessionIdValue match {
+            case seq: Seq[_] if seq.nonEmpty => seq.head.toString.trim
+            case other => other.toString.trim
+          }
+          if (sessionId.nonEmpty && !sessionId.startsWith("List(")) {
             mcpSessionId = Some(sessionId)
             logger.info(s"StreamableHTTPTransport($name) established MCP session: $sessionId")
           }
@@ -143,6 +136,29 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
     }
   }
 
+  /**
+   * Build headers according to MCP 2025-06-18 specification.
+   * Includes MCP-Protocol-Version header for non-initialize requests.
+   */
+  private def buildHeaders(request: JsonRpcRequest): Map[String, String] = {
+    val baseHeaders = Map(
+      "Content-Type" -> "application/json",
+      "Accept" -> "application/json, text/event-stream"
+    )
+    
+    // Add MCP-Protocol-Version header for all requests except initialize
+    val headersWithProtocol = if (request.method == "initialize") {
+      baseHeaders // No protocol version header on initialize
+    } else {
+      baseHeaders + ("MCP-Protocol-Version" -> "2025-06-18")
+    }
+    
+    // Add session header if we have one (lowercase per spec)
+    mcpSessionId.fold(headersWithProtocol)(sessionId => 
+      headersWithProtocol + ("mcp-session-id" -> sessionId)
+    )
+  }
+
   private def parseSSEResponse(sseBody: String): JsonRpcResponse = {
     // Parse Server-Sent Events format according to MCP spec
     val lines = sseBody.split("\n")
@@ -177,7 +193,7 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
       Try {
         requests.delete(
           url,
-          headers = Map("Mcp-Session-Id" -> sessionId)
+          headers = Map("mcp-session-id" -> sessionId) // lowercase per spec
         )
         logger.debug(s"StreamableHTTPTransport($name) sent session termination request")
       }.recover { case e => 
