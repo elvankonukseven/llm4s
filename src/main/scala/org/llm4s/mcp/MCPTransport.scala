@@ -3,7 +3,6 @@ package org.llm4s.mcp
 import scala.util.{ Try, Success, Failure }
 import java.util.concurrent.atomic.AtomicLong
 import upickle.default._
-import requests._
 import org.slf4j.LoggerFactory
 
 // Transport type definitions
@@ -39,10 +38,10 @@ case class MCPSession(
 
 // Streamable HTTP transport implementation (2025-06-18 spec)
 class StreamableHTTPTransportImpl(url: String, override val name: String) extends MCPTransportImpl {
-  private val logger = LoggerFactory.getLogger(getClass)
-  private val requestId = new AtomicLong(0)
+  private val logger                       = LoggerFactory.getLogger(getClass)
+  private val requestId                    = new AtomicLong(0)
   private var mcpSessionId: Option[String] = None
-  
+
   logger.info(s"StreamableHTTPTransport($name) initialized for URL: $url")
 
   override def sendRequest(request: JsonRpcRequest): Either[String, JsonRpcResponse] = {
@@ -52,7 +51,7 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
       val requestJson = write(request)
       logger.debug(s"StreamableHTTPTransport($name) request JSON: $requestJson")
 
-      // Build headers according to 2025-06-18 spec 
+      // Build headers according to 2025-06-18 spec
       val headers = buildHeaders(request)
 
       // POST to MCP endpoint (single endpoint, no /sse suffix)
@@ -68,19 +67,19 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
       if (request.method == "initialize" && response.statusCode >= 200 && response.statusCode < 300) {
         // Look for mcp-session-id header in response (lowercase per spec)
         val sessionIdOpt = response.headers.get("mcp-session-id")
-        
+
         sessionIdOpt.foreach { sessionIdValue =>
           // Handle both String and Seq[String] types from requests library
           val sessionId = sessionIdValue match {
             case seq: Seq[_] if seq.nonEmpty => seq.head.toString.trim
-            case other => other.toString.trim
+            case other                       => other.toString.trim
           }
           if (sessionId.nonEmpty && !sessionId.startsWith("List(")) {
             mcpSessionId = Some(sessionId)
             logger.info(s"StreamableHTTPTransport($name) established MCP session: $sessionId")
           }
         }
-        
+
         if (sessionIdOpt.isEmpty) {
           logger.debug(s"StreamableHTTPTransport($name) no session management (server chose not to use sessions)")
         }
@@ -92,7 +91,7 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
         mcpSessionId = None
         throw new RuntimeException("MCP session expired, client should reinitialize")
       }
-      
+
       // Handle 405 Method Not Allowed (server doesn't support Streamable HTTP)
       if (response.statusCode == 405) {
         throw new RuntimeException("Server does not support Streamable HTTP transport (405 Method Not Allowed)")
@@ -106,8 +105,8 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
 
       // Determine response type - for now assume JSON unless response body looks like SSE
       val responseBody = response.text()
-      val isSSE = responseBody.contains("data: ")
-      
+      val isSSE        = responseBody.contains("data: ")
+
       val jsonResponse = if (isSSE) {
         // Server chose to respond with SSE stream
         logger.debug(s"StreamableHTTPTransport($name) received SSE stream response")
@@ -117,14 +116,16 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
         logger.debug(s"StreamableHTTPTransport($name) received JSON response")
         read[JsonRpcResponse](responseBody)
       }
-      
+
       logger.debug(s"StreamableHTTPTransport($name) parsed JSON response: id=${jsonResponse.id}")
       jsonResponse
     } match {
       case Success(response) =>
         response.error match {
           case Some(error) =>
-            logger.error(s"StreamableHTTPTransport($name) JSON-RPC error from $url: code=${error.code}, message=${error.message}")
+            logger.error(
+              s"StreamableHTTPTransport($name) JSON-RPC error from $url: code=${error.code}, message=${error.message}"
+            )
             Left(s"JSON-RPC Error ${error.code}: ${error.message}")
           case None =>
             logger.debug(s"StreamableHTTPTransport($name) request successful: id=${response.id}")
@@ -143,26 +144,24 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
   private def buildHeaders(request: JsonRpcRequest): Map[String, String] = {
     val baseHeaders = Map(
       "Content-Type" -> "application/json",
-      "Accept" -> "application/json, text/event-stream"
+      "Accept"       -> "application/json, text/event-stream"
     )
-    
+
     // Add MCP-Protocol-Version header for all requests except initialize
     val headersWithProtocol = if (request.method == "initialize") {
       baseHeaders // No protocol version header on initialize
     } else {
       baseHeaders + ("MCP-Protocol-Version" -> "2025-06-18")
     }
-    
+
     // Add session header if we have one (lowercase per spec)
-    mcpSessionId.fold(headersWithProtocol)(sessionId => 
-      headersWithProtocol + ("mcp-session-id" -> sessionId)
-    )
+    mcpSessionId.fold(headersWithProtocol)(sessionId => headersWithProtocol + ("mcp-session-id" -> sessionId))
   }
 
   private def parseSSEResponse(sseBody: String): JsonRpcResponse = {
     // Parse Server-Sent Events format according to MCP spec
     val lines = sseBody.split("\n")
-    
+
     // Look for JSON-RPC responses in SSE data lines
     // According to spec: "The SSE stream SHOULD eventually include one JSON-RPC response per each JSON-RPC request"
     val jsonResponses = lines
@@ -172,7 +171,7 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
       .flatMap { data =>
         Try(read[JsonRpcResponse](data)) match {
           case Success(response) => Some(response)
-          case Failure(_) => 
+          case Failure(_)        =>
             // Skip non-JSON-RPC data (might be other SSE messages)
             logger.debug(s"StreamableHTTPTransport($name) skipping non-JSON-RPC SSE data: $data")
             None
@@ -187,7 +186,7 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
 
   override def close(): Unit = {
     logger.info(s"StreamableHTTPTransport($name) closing connection to $url")
-    
+
     // Send DELETE request to explicitly terminate session if we have one
     mcpSessionId.foreach { sessionId =>
       Try {
@@ -196,11 +195,13 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
           headers = Map("mcp-session-id" -> sessionId) // lowercase per spec
         )
         logger.debug(s"StreamableHTTPTransport($name) sent session termination request")
-      }.recover { case e => 
-        logger.debug(s"StreamableHTTPTransport($name) session termination failed (server may return 405): ${e.getMessage}")
+      }.recover { case e =>
+        logger.debug(
+          s"StreamableHTTPTransport($name) session termination failed (server may return 405): ${e.getMessage}"
+        )
       }
     }
-    
+
     // Clear session
     mcpSessionId = None
     logger.debug(s"StreamableHTTPTransport($name) closed successfully")
@@ -211,7 +212,7 @@ class StreamableHTTPTransportImpl(url: String, override val name: String) extend
 
 // SSE transport implementation using HTTP (2024-11-05 spec)
 class SSETransportImpl(url: String, override val name: String) extends MCPTransportImpl {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger    = LoggerFactory.getLogger(getClass)
   private val requestId = new AtomicLong(0)
 
   logger.info(s"SSETransport($name) initialized for URL: $url")
@@ -253,10 +254,9 @@ class SSETransportImpl(url: String, override val name: String) extends MCPTransp
   }
 
   // Closes the HTTP client connection
-  override def close(): Unit = {
+  override def close(): Unit =
     logger.info(s"SSETransport($name) closing connection to $url")
     // SSE connections are stateless, nothing to close
-  }
 
   // Generates unique request IDs
   def generateId(): String = requestId.incrementAndGet().toString
@@ -264,14 +264,14 @@ class SSETransportImpl(url: String, override val name: String) extends MCPTransp
 
 // Stdio transport implementation using subprocess communication
 class StdioTransportImpl(command: Seq[String], override val name: String) extends MCPTransportImpl {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger                   = LoggerFactory.getLogger(getClass)
   private var process: Option[Process] = None
-  private val requestId = new AtomicLong(0)
+  private val requestId                = new AtomicLong(0)
 
   logger.info(s"StdioTransport($name) initialized with command: ${command.mkString(" ")}")
 
   // Gets existing process or starts new one if needed
-  private def getOrStartProcess(): Either[String, Process] = {
+  private def getOrStartProcess(): Either[String, Process] =
     process match {
       case Some(p) if p.isAlive =>
         logger.debug(s"StdioTransport($name) reusing existing process")
@@ -280,7 +280,7 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
         logger.info(s"StdioTransport($name) starting new process: ${command.mkString(" ")}")
         Try {
           val processBuilder = new ProcessBuilder(command: _*)
-          val newProcess = processBuilder.start()
+          val newProcess     = processBuilder.start()
           process = Some(newProcess)
           logger.info(s"StdioTransport($name) process started successfully")
           newProcess
@@ -291,7 +291,6 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
             Left(s"Failed to start MCP server process: ${e.getMessage}")
         }
     }
-  }
 
   // Sends JSON-RPC request via subprocess stdin/stdout
   override def sendRequest(request: JsonRpcRequest): Either[String, JsonRpcResponse] = {
@@ -347,9 +346,7 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
         p.getErrorStream.close()
         p.destroyForcibly()
         logger.debug(s"StdioTransport($name) process terminated")
-      }.recover {
-        case e => logger.warn(s"StdioTransport($name) error during cleanup: ${e.getMessage}")
-      }
+      }.recover { case e => logger.warn(s"StdioTransport($name) error during cleanup: ${e.getMessage}") }
       process = None
     }
   }
@@ -358,14 +355,13 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
   def generateId(): String = requestId.incrementAndGet().toString
 }
 
-// Factory for creating transport implementations 
+// Factory for creating transport implementations
 object MCPTransport {
   // Creates appropriate transport implementation based on configuration
-  def create(config: MCPServerConfig): MCPTransportImpl = {
+  def create(config: MCPServerConfig): MCPTransportImpl =
     config.transport match {
-      case StdioTransport(command, name) => new StdioTransportImpl(command, name)
-      case SSETransport(url, name) => new SSETransportImpl(url, name)
+      case StdioTransport(command, name)      => new StdioTransportImpl(command, name)
+      case SSETransport(url, name)            => new SSETransportImpl(url, name)
       case StreamableHTTPTransport(url, name) => new StreamableHTTPTransportImpl(url, name)
     }
-  }
 }

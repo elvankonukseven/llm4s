@@ -13,16 +13,16 @@ import scala.util.{ Failure, Success, Try }
  * Supports both 2025-06-18 (Streamable HTTP) and 2024-11-05 (HTTP+SSE) transports.
  */
 class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
-  private val logger      = LoggerFactory.getLogger(getClass)
+  private val logger                              = LoggerFactory.getLogger(getClass)
   private var transport: Option[MCPTransportImpl] = None
-  private val requestId   = new AtomicLong(0)
-  private var initialized = false
-  private var protocolVersion = "2025-06-18" // Updated to latest version
+  private val requestId                           = new AtomicLong(0)
+  private var initialized                         = false
+  private var protocolVersion                     = "2025-06-18" // Updated to latest version
 
   logger.info(s"MCPClientImpl created for server: ${config.name}")
 
   // Initialize transport with backward compatibility detection
-  private def initializeTransport(): Either[String, MCPTransportImpl] = {
+  private def initializeTransport(): Either[String, MCPTransportImpl] =
     transport match {
       case Some(t) => Right(t)
       case None =>
@@ -38,14 +38,13 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
             Right(stdioTransport)
         }
     }
-  }
 
   // Unified HTTP transport logic: try Streamable HTTP first, fallback to SSE
   private def tryHttpTransportWithFallback(url: String, name: String): Either[String, MCPTransportImpl] = {
     // Try new 2025-06-18 Streamable HTTP transport first
     logger.info(s"Attempting to connect using Streamable HTTP transport (2025-06-18) to $url")
     val newTransport = new StreamableHTTPTransportImpl(url, name)
-    
+
     // Test with a simple initialize request
     val testRequest = createInitializeRequest("2025-06-18")
     newTransport.sendRequest(testRequest) match {
@@ -58,9 +57,9 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
         // Server doesn't support new transport, try fallback
         logger.info(s"Server doesn't support Streamable HTTP, attempting fallback to HTTP+SSE (2024-11-05)")
         newTransport.close()
-        
+
         // Try old transport
-        val oldTransport = new SSETransportImpl(url, name)
+        val oldTransport   = new SSETransportImpl(url, name)
         val oldTestRequest = createInitializeRequest("2024-11-05")
         oldTransport.sendRequest(oldTestRequest) match {
           case Right(_) =>
@@ -80,7 +79,7 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
     }
   }
 
-  private def createInitializeRequest(version: String): JsonRpcRequest = {
+  private def createInitializeRequest(version: String): JsonRpcRequest =
     JsonRpcRequest(
       id = generateId(),
       method = "initialize",
@@ -97,10 +96,9 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
         )
       )
     )
-  }
 
   // Performs MCP protocol handshake with the server
-  override def initialize(): Either[String, Unit] = {
+  override def initialize(): Either[String, Unit] =
     if (initialized) {
       Right(())
     } else {
@@ -114,11 +112,13 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
                 Try {
                   val serverProtocolVersion = result("protocolVersion").str
                   logger.info(s"Server supports protocol version: $serverProtocolVersion")
-                  
+
                   // Validate protocol version compatibility
                   if (serverProtocolVersion.startsWith("2024-") || serverProtocolVersion.startsWith("2025-")) {
                     initialized = true
-                    logger.info(s"Successfully initialized MCP client for ${config.name} with protocol $serverProtocolVersion")
+                    logger.info(
+                      s"Successfully initialized MCP client for ${config.name} with protocol $serverProtocolVersion"
+                    )
                     Right(())
                   } else {
                     Left(s"Unsupported protocol version: $serverProtocolVersion")
@@ -132,16 +132,15 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
         }
       }
     }
-  }
 
   // Retrieves and converts all available tools from the MCP server
-  override def getTools(): Seq[ToolFunction[_, _]] = {
+  override def getTools(): Seq[ToolFunction[_, _]] =
     // Ensure we're initialized
     initialize() match {
       case Left(errorMsg) =>
         logger.error(s"Failed to initialize MCP client for ${config.name}: $errorMsg")
         Seq.empty
-      case Right(_) => 
+      case Right(_) =>
         transport match {
           case Some(transportImpl) =>
             val listRequest = JsonRpcRequest(
@@ -178,7 +177,6 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
             Seq.empty
         }
     }
-  }
 
   // Closes the transport connection and resets initialization state
   override def close(): Unit = {
