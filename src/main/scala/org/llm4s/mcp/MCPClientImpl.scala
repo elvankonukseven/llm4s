@@ -43,29 +43,31 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
   private def tryHttpTransportWithFallback(url: String, name: String): Either[String, MCPTransportImpl] = {
     // Try new 2025-06-18 Streamable HTTP transport first
     logger.info(s"Attempting to connect using Streamable HTTP transport (2025-06-18) to $url")
-    val newTransport = new StreamableHTTPTransportImpl(url, name)
+    val newTransport = new StreamableHTTPTransportImpl(url, name, config.timeout)
 
-    // Test with a simple initialize request
-    val testRequest = createInitializeRequest("2025-06-18")
-    newTransport.sendRequest(testRequest) match {
+    // Test with a simple capability check (not full initialization)
+    val capabilityRequest = createCapabilityCheckRequest("2025-06-18")
+    newTransport.sendRequest(capabilityRequest) match {
       case Right(_) =>
         logger.info(s"Successfully connected using Streamable HTTP transport (2025-06-18)")
         transport = Some(newTransport)
         protocolVersion = "2025-06-18"
+        isTransportInitialized = true // Mark as initialized during testing
         Right(newTransport)
-      case Left(error) if error.contains("405") || error.contains("404") =>
+      case Left(error) if error.contains("405") || error.contains("404") || error.contains("Method Not Allowed") =>
         // Server doesn't support new transport, try fallback
         logger.info(s"Server doesn't support Streamable HTTP, attempting fallback to HTTP+SSE (2024-11-05)")
         newTransport.close()
 
         // Try old transport
-        val oldTransport   = new SSETransportImpl(url, name)
-        val oldTestRequest = createInitializeRequest("2024-11-05")
-        oldTransport.sendRequest(oldTestRequest) match {
+        val oldTransport = new SSETransportImpl(url, name, config.timeout)
+        val oldCapabilityRequest = createCapabilityCheckRequest("2024-11-05")
+        oldTransport.sendRequest(oldCapabilityRequest) match {
           case Right(_) =>
             logger.info(s"Successfully connected using HTTP+SSE transport (2024-11-05)")
             transport = Some(oldTransport)
             protocolVersion = "2024-11-05"
+            isTransportInitialized = true // Mark as initialized during testing
             Right(oldTransport)
           case Left(fallbackError) =>
             logger.error(s"Both transport methods failed. New: $error, Old: $fallbackError")
@@ -78,6 +80,10 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
         Left(error)
     }
   }
+
+  // Create a simple capability check request (use initialize but mark as test)
+  private def createCapabilityCheckRequest(version: String): JsonRpcRequest =
+    createInitializeRequest(version)
 
   private def createInitializeRequest(version: String): JsonRpcRequest =
     JsonRpcRequest(
@@ -103,35 +109,76 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
       Right(())
     } else {
       initializeTransport().flatMap { transportImpl =>
-        val initRequest = createInitializeRequest(protocolVersion)
+        // Check if we already did initialization during transport testing
+        if (isTransportInitialized) {
+          // Just send the initialized notification to complete handshake
+          val initializedNotification = JsonRpcRequest(
+            id = generateId(),
+            method = "initialized",
+            params = Some(ujson.Obj())
+          )
+          
+          transportImpl.sendRequest(initializedNotification) match {
+            case Right(_) =>
+              initialized = true
+              logger.info(s"Completed MCP client initialization for ${config.name} with existing connection")
+              Right(())
+            case Left(notificationError) =>
+              logger.warn(s"Failed to send initialized notification: $notificationError, but continuing anyway")
+              // Some servers might not require the initialized notification
+              initialized = true
+              Right(())
+          }
+        } else {
+          // Full initialization process
+          val initRequest = createInitializeRequest(protocolVersion)
 
-        transportImpl.sendRequest(initRequest) match {
-          case Right(response) =>
-            response.result match {
-              case Some(result) =>
-                Try {
-                  val serverProtocolVersion = result("protocolVersion").str
-                  logger.info(s"Server supports protocol version: $serverProtocolVersion")
+          transportImpl.sendRequest(initRequest) match {
+            case Right(response) =>
+              response.result match {
+                case Some(result) =>
+                  Try {
+                    val serverProtocolVersion = result("protocolVersion").str
+                    logger.info(s"Server supports protocol version: $serverProtocolVersion")
 
-                  // Validate protocol version compatibility
-                  if (serverProtocolVersion.startsWith("2024-") || serverProtocolVersion.startsWith("2025-")) {
-                    initialized = true
-                    logger.info(
-                      s"Successfully initialized MCP client for ${config.name} with protocol $serverProtocolVersion"
-                    )
-                    Right(())
-                  } else {
-                    Left(s"Unsupported protocol version: $serverProtocolVersion")
-                  }
-                }.getOrElse(Left("Invalid initialization response format"))
-              case None =>
-                Left("Initialize request failed: no result in response")
-            }
-          case Left(errorMsg) =>
-            Left(s"Initialize request failed: $errorMsg")
+                    // Validate protocol version compatibility
+                    if (serverProtocolVersion.startsWith("2024-") || serverProtocolVersion.startsWith("2025-")) {
+                      // Send initialized notification to complete the handshake
+                      val initializedNotification = JsonRpcRequest(
+                        id = generateId(),
+                        method = "initialized",
+                        params = Some(ujson.Obj())
+                      )
+                      
+                      transportImpl.sendRequest(initializedNotification) match {
+                        case Right(_) =>
+                          initialized = true
+                          logger.info(
+                            s"Successfully initialized MCP client for ${config.name} with protocol $serverProtocolVersion"
+                          )
+                          Right(())
+                        case Left(notificationError) =>
+                          logger.warn(s"Failed to send initialized notification: $notificationError, but continuing anyway")
+                          // Some servers might not require the initialized notification
+                          initialized = true
+                          Right(())
+                      }
+                    } else {
+                      Left(s"Unsupported protocol version: $serverProtocolVersion")
+                    }
+                  }.getOrElse(Left("Invalid initialization response format"))
+                case None =>
+                  Left("Initialize request failed: no result in response")
+              }
+            case Left(errorMsg) =>
+              Left(s"Initialize request failed: $errorMsg")
+          }
         }
       }
     }
+
+  // Track if transport was initialized during testing
+  private var isTransportInitialized = false
 
   // Retrieves and converts all available tools from the MCP server
   override def getTools(): Seq[ToolFunction[_, _]] =
