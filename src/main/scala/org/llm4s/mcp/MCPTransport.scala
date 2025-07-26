@@ -669,7 +669,8 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
     }
 
     val stderrOutput = readAvailableStderr()
-    val errorMsg = s"Timeout waiting for response to request $requestId after ${RESPONSE_TIMEOUT_MS}ms. Server stderr: $stderrOutput"
+    val errorMsg =
+      s"Timeout waiting for response to request $requestId after ${RESPONSE_TIMEOUT_MS}ms. Server stderr: $stderrOutput"
     throw new RuntimeException(errorMsg)
   }
 

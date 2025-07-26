@@ -95,8 +95,8 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
         ujson.Obj(
           "protocolVersion" -> ujson.Str(version),
           "capabilities" -> ujson.Obj(
-            "tools" -> ujson.Obj(),
-            "roots" -> ujson.Obj("listChanged" -> ujson.Bool(false)),
+            "tools"    -> ujson.Obj(),
+            "roots"    -> ujson.Obj("listChanged" -> ujson.Bool(false)),
             "sampling" -> ujson.Obj()
           ),
           "clientInfo" -> ujson.Obj(
