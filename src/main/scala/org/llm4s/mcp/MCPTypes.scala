@@ -12,7 +12,7 @@ import upickle.default._
  * @param params Optional parameters for the method
  */
 case class JsonRpcRequest(
-  jsonrpc: String = "2.0",
+  jsonrpc: String, // No default value to force explicit setting
   id: String,
   method: String,
   params: Option[ujson.Value] = None
@@ -79,12 +79,16 @@ case class ServerInfo(
  * @param logging Logging capabilities
  * @param prompts Prompt management capabilities
  * @param resources Resource access capabilities
+ * @param roots Root directory access capabilities
+ * @param sampling Sampling capabilities
  */
 case class MCPCapabilities(
   tools: Option[ujson.Value] = Some(ujson.Obj()),
   logging: Option[ujson.Value] = None,
   prompts: Option[ujson.Value] = None,
-  resources: Option[ujson.Value] = None
+  resources: Option[ujson.Value] = None,
+  roots: Option[ujson.Value] = Some(ujson.Obj("listChanged" -> ujson.Bool(false))),
+  sampling: Option[ujson.Value] = Some(ujson.Obj())
 )
 
 /**
@@ -230,16 +234,16 @@ object MCPErrorCodes {
     JsonRpcError(code, message, data)
 
   // Helper methods for common errors
-  def transportError(message: String): JsonRpcError = 
+  def transportError(message: String): JsonRpcError =
     createError(TRANSPORT_ERROR, message)
-    
-  def timeoutError(message: String): JsonRpcError = 
+
+  def timeoutError(message: String): JsonRpcError =
     createError(TIMEOUT_ERROR, message)
-    
-  def toolNotFound(toolName: String): JsonRpcError = 
+
+  def toolNotFound(toolName: String): JsonRpcError =
     createError(TOOL_NOT_FOUND, s"Tool not found: $toolName")
-    
-  def toolExecutionError(toolName: String, error: String): JsonRpcError = 
+
+  def toolExecutionError(toolName: String, error: String): JsonRpcError =
     createError(TOOL_EXECUTION_ERROR, s"Tool execution failed: $toolName - $error")
 }
 

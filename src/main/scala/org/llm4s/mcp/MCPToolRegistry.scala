@@ -110,32 +110,34 @@ class MCPToolRegistry(
       case Success(tools) => tools
       case Failure(exception) =>
         logger.error(s"Failed to refresh tools from ${server.name}: ${exception.getMessage}", exception)
-        
+
         // Clean up failed client
         Option(mcpClients.remove(server.name)).foreach { failedClient =>
           Try(failedClient.close()).recover { case e =>
             logger.debug(s"Error closing failed client for ${server.name}: ${e.getMessage}")
           }
         }
-        
+
         Seq.empty
     }
   }
 
   // Get or create MCP client for a server (thread-safe)
-  private def getOrCreateClient(server: MCPServerConfig): MCPClient = {
+  private def getOrCreateClient(server: MCPServerConfig): MCPClient =
     Option(mcpClients.get(server.name)) match {
       case Some(client) => client
-      case None =>
+      case None         =>
         // Use computeIfAbsent for thread-safe client creation
-        mcpClients.computeIfAbsent(server.name, { _ =>
-          logger.info(s"Creating new MCP client for server: ${server.name}")
-          val client = new MCPClientImpl(server)
-          logger.debug(s"MCP client created successfully for server: ${server.name}")
-          client
-        })
+        mcpClients.computeIfAbsent(
+          server.name,
+          { _ =>
+            logger.info(s"Creating new MCP client for server: ${server.name}")
+            val client = new MCPClientImpl(server)
+            logger.debug(s"MCP client created successfully for server: ${server.name}")
+            client
+          }
+        )
     }
-  }
 
   // Utility methods for cache management
   def clearCache(): Unit = {
@@ -167,11 +169,11 @@ class MCPToolRegistry(
         val client = getOrCreateClient(server)
         client.initialize().isRight
       }.getOrElse(false)
-      
+
       logger.debug(s"Health check for ${server.name}: ${if (isHealthy) "OK" else "FAILED"}")
       server.name -> isHealthy
     }.toMap
-    
+
     val healthyCount = results.values.count(identity)
     logger.info(s"Health check completed: $healthyCount/${results.size} servers healthy")
     results
@@ -180,7 +182,7 @@ class MCPToolRegistry(
   // Initialize MCP tools after all methods are defined (with lazy initialization option)
   private def initializeMCPTools(): Unit = {
     logger.info("Initializing MCP tools for all configured servers")
-    
+
     // Initialize servers in parallel for better performance
     val results = mcpServers.map { server =>
       Try {
@@ -191,15 +193,15 @@ class MCPToolRegistry(
         server.name -> s"failed: ${e.getMessage}"
       }.get
     }
-    
+
     val successCount = results.count(_._2 == "success")
     logger.info(s"MCP tools initialization completed: $successCount/${results.size} servers initialized successfully")
-    
+
     if (successCount == 0) {
       logger.warn("No MCP servers were successfully initialized - all tools will be local only")
     }
   }
-  
+
   // Initialize tools during construction
   initializeMCPTools()
 }

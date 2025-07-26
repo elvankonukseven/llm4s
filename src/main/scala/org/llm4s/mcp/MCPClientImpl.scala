@@ -32,9 +32,10 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
           case SSETransport(url, name) =>
             tryHttpTransportWithFallback(url, name)
           case StdioTransport(command, name) =>
-            // Stdio transport remains unchanged
+            // Stdio transport uses 2024-11-05 protocol version
             val stdioTransport = new StdioTransportImpl(command, name)
             transport = Some(stdioTransport)
+            protocolVersion = "2024-11-05"
             Right(stdioTransport)
         }
     }
@@ -60,7 +61,7 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
         newTransport.close()
 
         // Try old transport
-        val oldTransport = new SSETransportImpl(url, name, config.timeout)
+        val oldTransport         = new SSETransportImpl(url, name, config.timeout)
         val oldCapabilityRequest = createCapabilityCheckRequest("2024-11-05")
         oldTransport.sendRequest(oldCapabilityRequest) match {
           case Right(_) =>
@@ -87,13 +88,16 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
 
   private def createInitializeRequest(version: String): JsonRpcRequest =
     JsonRpcRequest(
+      jsonrpc = "2.0", // Explicitly set to ensure serialization
       id = generateId(),
       method = "initialize",
       params = Some(
         ujson.Obj(
           "protocolVersion" -> ujson.Str(version),
           "capabilities" -> ujson.Obj(
-            "tools" -> ujson.Obj()
+            "tools" -> ujson.Obj(),
+            "roots" -> ujson.Obj("listChanged" -> ujson.Bool(false)),
+            "sampling" -> ujson.Obj()
           ),
           "clientInfo" -> ujson.Obj(
             "name"    -> ujson.Str("llm4s-mcp"),
@@ -113,11 +117,12 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
         if (isTransportInitialized) {
           // Just send the initialized notification to complete handshake
           val initializedNotification = JsonRpcRequest(
+            jsonrpc = "2.0",
             id = generateId(),
             method = "initialized",
             params = Some(ujson.Obj())
           )
-          
+
           transportImpl.sendRequest(initializedNotification) match {
             case Right(_) =>
               initialized = true
@@ -145,11 +150,12 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
                     if (serverProtocolVersion.startsWith("2024-") || serverProtocolVersion.startsWith("2025-")) {
                       // Send initialized notification to complete the handshake
                       val initializedNotification = JsonRpcRequest(
+                        jsonrpc = "2.0",
                         id = generateId(),
                         method = "initialized",
                         params = Some(ujson.Obj())
                       )
-                      
+
                       transportImpl.sendRequest(initializedNotification) match {
                         case Right(_) =>
                           initialized = true
@@ -158,7 +164,9 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
                           )
                           Right(())
                         case Left(notificationError) =>
-                          logger.warn(s"Failed to send initialized notification: $notificationError, but continuing anyway")
+                          logger.warn(
+                            s"Failed to send initialized notification: $notificationError, but continuing anyway"
+                          )
                           // Some servers might not require the initialized notification
                           initialized = true
                           Right(())
@@ -191,6 +199,7 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
         transport match {
           case Some(transportImpl) =>
             val listRequest = JsonRpcRequest(
+              jsonrpc = "2.0",
               id = generateId(),
               method = "tools/list", // method value for getting available tools
               params = None
@@ -316,6 +325,7 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
     transport match {
       case Some(transportImpl) =>
         val callRequest = JsonRpcRequest(
+          jsonrpc = "2.0",
           id = generateId(),
           method = "tools/call", // method value for executing a specific tool
           params = Some(

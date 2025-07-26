@@ -38,7 +38,8 @@ case class MCPSession(
 )
 
 // Streamable HTTP transport implementation (2025-06-18 spec)
-class StreamableHTTPTransportImpl(url: String, override val name: String, timeout: Duration = 30.seconds) extends MCPTransportImpl {
+class StreamableHTTPTransportImpl(url: String, override val name: String, timeout: Duration = 30.seconds)
+    extends MCPTransportImpl {
   private val logger                       = LoggerFactory.getLogger(getClass)
   private val requestId                    = new AtomicLong(0)
   private var mcpSessionId: Option[String] = None
@@ -108,8 +109,8 @@ class StreamableHTTPTransportImpl(url: String, override val name: String, timeou
 
       // Determine response type based on content-type header
       val responseBody = response.text()
-      val contentType = response.headers.get("content-type").map(_.toString.toLowerCase)
-      val isSSE = contentType.exists(_.contains("text/event-stream"))
+      val contentType  = response.headers.get("content-type").map(_.toString.toLowerCase)
+      val isSSE        = contentType.exists(_.contains("text/event-stream"))
 
       val jsonResponse = if (isSSE) {
         // Server chose to respond with SSE stream
@@ -166,20 +167,20 @@ class StreamableHTTPTransportImpl(url: String, override val name: String, timeou
     // Parse Server-Sent Events format according to W3C SSE specification
     // SSE format: event: <type>\ndata: <content>\nid: <id>\n\n
     val lines = sseBody.split("\n")
-    
+
     case class SSEEvent(
       eventType: Option[String] = None,
       data: StringBuilder = new StringBuilder(),
       id: Option[String] = None
     )
-    
-    val events = scala.collection.mutable.ListBuffer[SSEEvent]()
+
+    val events       = scala.collection.mutable.ListBuffer[SSEEvent]()
     var currentEvent = SSEEvent()
-    
+
     // Parse SSE events according to the specification
     for (line <- lines) {
       val trimmedLine = line.trim
-      
+
       if (trimmedLine.isEmpty) {
         // Empty line signals end of event
         if (currentEvent.data.nonEmpty || currentEvent.eventType.isDefined || currentEvent.id.isDefined) {
@@ -209,7 +210,7 @@ class StreamableHTTPTransportImpl(url: String, override val name: String, timeou
         logger.debug(s"StreamableHTTPTransport($name) ignoring unrecognized SSE line: $trimmedLine")
       }
     }
-    
+
     // Add final event if there wasn't a trailing empty line
     if (currentEvent.data.nonEmpty || currentEvent.eventType.isDefined || currentEvent.id.isDefined) {
       events += currentEvent
@@ -220,12 +221,16 @@ class StreamableHTTPTransportImpl(url: String, override val name: String, timeou
       val dataContent = event.data.toString
       if (dataContent.nonEmpty && dataContent != "[DONE]") {
         Try(read[JsonRpcResponse](dataContent)) match {
-          case Success(response) => 
-            logger.debug(s"StreamableHTTPTransport($name) found JSON-RPC response in SSE event: ${event.eventType.getOrElse("unnamed")}")
+          case Success(response) =>
+            logger.debug(
+              s"StreamableHTTPTransport($name) found JSON-RPC response in SSE event: ${event.eventType.getOrElse("unnamed")}"
+            )
             Some(response)
           case Failure(e) =>
             // Skip non-JSON-RPC data (might be other SSE messages)
-            logger.debug(s"StreamableHTTPTransport($name) skipping non-JSON-RPC SSE data: $dataContent (${e.getMessage})")
+            logger.debug(
+              s"StreamableHTTPTransport($name) skipping non-JSON-RPC SSE data: $dataContent (${e.getMessage})"
+            )
             None
         }
       } else {
@@ -235,7 +240,9 @@ class StreamableHTTPTransportImpl(url: String, override val name: String, timeou
 
     // Return the first valid JSON-RPC response
     jsonResponses.headOption.getOrElse {
-      throw new RuntimeException(s"No valid JSON-RPC response found in SSE stream. Found ${events.size} events, none contained valid JSON-RPC responses.")
+      throw new RuntimeException(
+        s"No valid JSON-RPC response found in SSE stream. Found ${events.size} events, none contained valid JSON-RPC responses."
+      )
     }
   }
 
@@ -268,11 +275,12 @@ class StreamableHTTPTransportImpl(url: String, override val name: String, timeou
 }
 
 // SSE transport implementation using HTTP (2024-11-05 spec)
-class SSETransportImpl(url: String, override val name: String, timeout: Duration = 30.seconds) extends MCPTransportImpl {
-  private val logger    = LoggerFactory.getLogger(getClass)
-  private val requestId = new AtomicLong(0)
+class SSETransportImpl(url: String, override val name: String, timeout: Duration = 30.seconds)
+    extends MCPTransportImpl {
+  private val logger                       = LoggerFactory.getLogger(getClass)
+  private val requestId                    = new AtomicLong(0)
   private var mcpSessionId: Option[String] = None
-  private val protocolVersion = "2024-11-05"
+  private val protocolVersion              = "2024-11-05"
 
   logger.info(s"SSETransport($name) initialized for URL: $url with timeout: $timeout")
 
@@ -296,12 +304,12 @@ class SSETransportImpl(url: String, override val name: String, timeout: Duration
       )
 
       logger.debug(s"SSETransport($name) received HTTP response: status=${response.statusCode}")
-      
+
       // Handle session management during initialization
       if (request.method == "initialize" && response.statusCode >= 200 && response.statusCode < 300) {
         // Look for mcp-session-id header in response (lowercase per spec)
         val sessionIdOpt = response.headers.get("mcp-session-id")
-        
+
         sessionIdOpt.foreach { sessionIdValue =>
           // Handle both String and Seq[String] types from requests library
           val sessionId = sessionIdValue match {
@@ -313,7 +321,7 @@ class SSETransportImpl(url: String, override val name: String, timeout: Duration
             logger.info(s"SSETransport($name) established MCP session: $sessionId")
           }
         }
-        
+
         if (sessionIdOpt.isEmpty) {
           logger.debug(s"SSETransport($name) no session management (server chose not to use sessions)")
         }
@@ -334,8 +342,8 @@ class SSETransportImpl(url: String, override val name: String, timeout: Duration
 
       // Determine response type based on content-type header
       val responseBody = response.text()
-      val contentType = response.headers.get("content-type").map(_.toString.toLowerCase)
-      val isSSE = contentType.exists(_.contains("text/event-stream"))
+      val contentType  = response.headers.get("content-type").map(_.toString.toLowerCase)
+      val isSSE        = contentType.exists(_.contains("text/event-stream"))
 
       val jsonResponse = if (isSSE) {
         // Server responded with SSE stream
@@ -415,7 +423,7 @@ class SSETransportImpl(url: String, override val name: String, timeout: Duration
   // Closes the HTTP client connection
   override def close(): Unit = {
     logger.info(s"SSETransport($name) closing connection to $url")
-    
+
     // Send DELETE request to explicitly terminate session if we have one
     mcpSessionId.foreach { sessionId =>
       Try {
@@ -432,7 +440,7 @@ class SSETransportImpl(url: String, override val name: String, timeout: Duration
         )
       }
     }
-    
+
     // Clear session
     mcpSessionId = None
     logger.debug(s"SSETransport($name) closed successfully")
@@ -444,13 +452,13 @@ class SSETransportImpl(url: String, override val name: String, timeout: Duration
 
 // Stdio transport implementation using subprocess communication with proper MCP protocol compliance
 class StdioTransportImpl(command: Seq[String], override val name: String) extends MCPTransportImpl {
-  private val logger                   = LoggerFactory.getLogger(getClass)
-  private var process: Option[Process] = None
-  private val requestId                = new AtomicLong(0)
-  private var stdinWriter: Option[java.io.PrintWriter] = None
+  private val logger                                       = LoggerFactory.getLogger(getClass)
+  private var process: Option[Process]                     = None
+  private val requestId                                    = new AtomicLong(0)
+  private var stdinWriter: Option[java.io.PrintWriter]     = None
   private var stdoutReader: Option[java.io.BufferedReader] = None
   private var stderrReader: Option[java.io.BufferedReader] = None
-  
+
   // Timeout for server responses (30 seconds)
   private val RESPONSE_TIMEOUT_MS = 30000
   // Timeout for server startup (10 seconds)
@@ -471,26 +479,32 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
   // Starts a new MCP server process with proper initialization
   private def startNewProcess(): Either[String, Process] = {
     logger.info(s"StdioTransport($name) starting new process: ${command.mkString(" ")}")
-    
+
     Try {
       val processBuilder = new ProcessBuilder(command: _*)
       processBuilder.redirectErrorStream(false) // Keep stderr separate for monitoring
       val newProcess = processBuilder.start()
-      
+
       // Set up I/O streams
-      stdinWriter = Some(new java.io.PrintWriter(
-        new java.io.OutputStreamWriter(newProcess.getOutputStream, "UTF-8"), 
-        true // auto-flush
-      ))
-      stdoutReader = Some(new java.io.BufferedReader(
-        new java.io.InputStreamReader(newProcess.getInputStream, "UTF-8")
-      ))
-      stderrReader = Some(new java.io.BufferedReader(
-        new java.io.InputStreamReader(newProcess.getErrorStream, "UTF-8")
-      ))
-      
+      stdinWriter = Some(
+        new java.io.PrintWriter(
+          new java.io.OutputStreamWriter(newProcess.getOutputStream, "UTF-8"),
+          true // auto-flush
+        )
+      )
+      stdoutReader = Some(
+        new java.io.BufferedReader(
+          new java.io.InputStreamReader(newProcess.getInputStream, "UTF-8")
+        )
+      )
+      stderrReader = Some(
+        new java.io.BufferedReader(
+          new java.io.InputStreamReader(newProcess.getErrorStream, "UTF-8")
+        )
+      )
+
       process = Some(newProcess)
-      
+
       // Wait for server to be ready (check if it's responsive)
       waitForServerReady(newProcess) match {
         case Right(_) =>
@@ -514,23 +528,23 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
   // Wait for the server to be ready to accept requests
   private def waitForServerReady(proc: Process): Either[String, Unit] = {
     val startTime = System.currentTimeMillis()
-    
+
     while (System.currentTimeMillis() - startTime < STARTUP_TIMEOUT_MS) {
       if (!proc.isAlive) {
         // Check stderr for error messages
         val errorOutput = readAvailableStderr()
         return Left(s"Process died during startup. Error output: $errorOutput")
       }
-      
+
       // Check if there's any output indicating the server is ready
       if (stdoutReader.exists(_.ready()) || stderrReader.exists(_.ready())) {
         logger.debug(s"StdioTransport($name) server appears ready (has output)")
         return Right(())
       }
-      
+
       Thread.sleep(100) // Small delay before checking again
     }
-    
+
     // Server might be ready even without immediate output
     if (proc.isAlive) {
       logger.debug(s"StdioTransport($name) server process is alive, assuming ready")
@@ -541,26 +555,25 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
   }
 
   // Read any available stderr output for diagnostics
-  private def readAvailableStderr(): String = {
+  private def readAvailableStderr(): String =
     stderrReader match {
       case Some(reader) =>
         val output = new StringBuilder
-        try {
+        try
           while (reader.ready()) {
             val line = reader.readLine()
             if (line != null) {
               output.append(line).append("\n")
-              logger.debug(s"StdioTransport($name) stderr: $line")
+              logger.info(s"StdioTransport($name) stderr: $line")
             }
           }
-        } catch {
+        catch {
           case e: Exception =>
             logger.debug(s"Error reading stderr: ${e.getMessage}")
         }
         output.toString
       case None => ""
     }
-  }
 
   // Sends JSON-RPC request via subprocess stdin/stdout with proper MCP protocol
   override def sendRequest(request: JsonRpcRequest): Either[String, JsonRpcResponse] = {
@@ -572,34 +585,35 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
           Try {
             // Read any pending stderr for diagnostics
             readAvailableStderr()
-            
+
             val requestJson = write(request)
-            logger.debug(s"StdioTransport($name) writing to stdin: $requestJson")
+            logger.info(s"StdioTransport($name) writing to stdin: $requestJson")
 
             // Write request as line-delimited JSON (one complete JSON object per line)
             writer.println(requestJson)
-            
+            writer.flush() // Ensure the request is immediately sent to the server
+
             if (writer.checkError()) {
               throw new RuntimeException("Failed to write to process stdin (broken pipe)")
             }
 
             // Read response with timeout
             val responseLine = readResponseWithTimeout(reader, request.id)
-            
+
             if (responseLine.isEmpty) {
               throw new RuntimeException(s"No response from MCP server for request ${request.id}")
             }
 
-            logger.debug(s"StdioTransport($name) received from stdout: $responseLine")
-            
+            logger.info(s"StdioTransport($name) received from stdout: $responseLine")
+
             // Parse JSON response
             val response = read[JsonRpcResponse](responseLine)
-            
+
             // Validate response ID matches request ID
             if (response.id != request.id) {
               logger.warn(s"Response ID ${response.id} doesn't match request ID ${request.id}")
             }
-            
+
             response
           } match {
             case Success(response) =>
@@ -619,7 +633,7 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
               } else {
                 exception.getMessage
               }
-              
+
               logger.error(s"StdioTransport($name) transport error: $errorMsg", exception)
               Left(s"Stdio transport error: $errorMsg")
           }
@@ -632,7 +646,7 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
   // Read response with timeout to avoid indefinite blocking
   private def readResponseWithTimeout(reader: java.io.BufferedReader, requestId: String): String = {
     val startTime = System.currentTimeMillis()
-    
+
     while (System.currentTimeMillis() - startTime < RESPONSE_TIMEOUT_MS) {
       if (reader.ready()) {
         val line = reader.readLine()
@@ -640,58 +654,62 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
           return line
         }
       }
-      
+
       // Check if process is still alive
       process match {
         case Some(p) if !p.isAlive =>
           val stderrOutput = readAvailableStderr()
-          throw new RuntimeException(s"MCP server process died while waiting for response to request $requestId. Stderr: $stderrOutput")
+          throw new RuntimeException(
+            s"MCP server process died while waiting for response to request $requestId. Stderr: $stderrOutput"
+          )
         case _ =>
       }
-      
+
       Thread.sleep(50) // Small delay before checking again
     }
-    
-    throw new RuntimeException(s"Timeout waiting for response to request $requestId after ${RESPONSE_TIMEOUT_MS}ms")
+
+    val stderrOutput = readAvailableStderr()
+    val errorMsg = s"Timeout waiting for response to request $requestId after ${RESPONSE_TIMEOUT_MS}ms. Server stderr: $stderrOutput"
+    throw new RuntimeException(errorMsg)
   }
 
   // Clean up process and streams
   private def cleanupProcess(): Unit = {
     stdinWriter.foreach { writer =>
-      Try(writer.close()).recover { case e => 
+      Try(writer.close()).recover { case e =>
         logger.debug(s"Error closing stdin writer: ${e.getMessage}")
       }
     }
     stdinWriter = None
-    
+
     stdoutReader.foreach { reader =>
-      Try(reader.close()).recover { case e => 
+      Try(reader.close()).recover { case e =>
         logger.debug(s"Error closing stdout reader: ${e.getMessage}")
       }
     }
     stdoutReader = None
-    
+
     stderrReader.foreach { reader =>
-      Try(reader.close()).recover { case e => 
+      Try(reader.close()).recover { case e =>
         logger.debug(s"Error closing stderr reader: ${e.getMessage}")
       }
     }
     stderrReader = None
-    
+
     process.foreach { p =>
       Try {
         // First try graceful termination
         p.destroy()
-        
+
         // Wait a bit for graceful shutdown
         val terminated = p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
         if (!terminated) {
           logger.debug(s"StdioTransport($name) forcing process termination")
           p.destroyForcibly()
         }
-        
+
         logger.debug(s"StdioTransport($name) process terminated with exit code: ${p.exitValue()}")
-      }.recover { case e => 
+      }.recover { case e =>
         logger.warn(s"StdioTransport($name) error during process cleanup: ${e.getMessage}")
       }
     }
