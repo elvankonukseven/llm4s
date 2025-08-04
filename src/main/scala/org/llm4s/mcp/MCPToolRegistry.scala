@@ -3,10 +3,10 @@ package org.llm4s.mcp
 import org.llm4s.toolapi._
 import org.slf4j.LoggerFactory
 
-import scala.concurrent.duration._
-import scala.util.{ Failure, Success, Try }
 import java.util.concurrent.ConcurrentHashMap
+import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
+import scala.util.{ Failure, Success, Try }
 
 // MCP-aware tool registry that integrates with the existing tool API
 class MCPToolRegistry(
@@ -204,6 +204,23 @@ class MCPToolRegistry(
 
   // Initialize tools during construction
   initializeMCPTools()
+}
+
+object MCPToolRegistry {
+  // Create MCP server configuration for Playwright
+  // Using stdio transport to launch and communicate with Playwright MCP server
+  val mcpServerConfig = MCPServerConfig.stdio(
+    name = "playwright-mcp-server",
+    command = Seq("npx", "@playwright/mcp@latest"),
+    timeout = 60.seconds
+  )
+
+  def apply() =
+    new MCPToolRegistry(
+      mcpServers = Seq(mcpServerConfig),
+      localTools = Seq.empty, // No local tools, using only Playwright MCP tools
+      cacheTTL = 10.minutes
+    )
 }
 
 // Helper case class for cleaner caching

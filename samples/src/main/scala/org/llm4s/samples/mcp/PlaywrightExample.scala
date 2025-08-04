@@ -1,14 +1,14 @@
 package org.llm4s.samples.mcp
 
-import org.llm4s.agent.{ Agent, AgentState }
-import org.llm4s.llmconnect.LLM
-import org.llm4s.llmconnect.model.{ Conversation, SystemMessage, UserMessage }
+import cats.implicits._
+import org.llm4s.agent.{Agent, AgentState}
+import org.llm4s.llmconnect.model.{Conversation, SystemMessage, UserMessage}
+import org.llm4s.llmconnect.{LLM, LLMClient}
 import org.llm4s.mcp._
+import org.llm4s.toolapi.ToolFunction
 import org.slf4j.LoggerFactory
-import scala.concurrent.duration._
-import org.llm4s.llmconnect.LLMClient
-import scala.util.Try
 
+import scala.util.Try
 /**
  * This example shows how an LLM agent can use the Playwright MCP server
  * to perform browser automation tasks like navigation, clicking, and data extraction.
@@ -29,97 +29,81 @@ import scala.util.Try
 object PlaywrightExample {
   private val logger = LoggerFactory.getLogger(getClass)
 
+  private def logNoToolsError(): Unit = {
+    logger.error(
+      """
+        |❌ No tools available from Playwright MCP server
+        |This could indicate:
+        |  1. The MCP server failed to start
+        |  2. Network issues preventing package download
+        |  3. Node.js or npx not properly installed
+        |""".stripMargin)
+  }
+
+  private def logToolsInfo(tools: Seq[ToolFunction[?, ?]]): Unit = {
+    logger.info("📦 Available Playwright tools ({} total):", tools.size)
+    tools.zipWithIndex.foreach { case (tool, index) =>
+      logger.info("   {}. {}: {}", index + 1, tool.name, tool.description)
+    }
+  }
+
+  private def checkForTools(mcpRegistry: MCPToolRegistry): Either[String, Seq[ToolFunction[?, ?]]] = {
+    val allTools = mcpRegistry.getAllTools
+    val result = Either.cond(allTools.nonEmpty,
+      allTools,
+      "No tools available from Playwright MCP server")
+    result.bimap (_ => logNoToolsError(), tools => logToolsInfo(tools))
+    result
+  }
+
+  private def runQueries(mcpClient: LLMClient, mcpRegistry: MCPToolRegistry): Either[String, Unit] = Try {
+    runBrowserAutomationQueries(mcpClient, mcpRegistry)
+  }.toEither.leftMap(_.getMessage)
+
+  private def closeMCPClient(mcpToolRegistry: MCPToolRegistry) = Try {
+    logger.info("🧹 Cleaning up MCP connections...")
+    mcpToolRegistry.closeMCPClients()
+  }.toEither.leftMap(_.getMessage)
+
   def main(args: Array[String]): Unit = {
     logger.info("🚀 Playwright MCP Agent Example")
     logger.info("🌐 Demonstrating browser automation with MCP integration")
 
-    try
-      // Validate prerequisites
-      validatePrerequisites().fold(
-        error => {
-          logger.error("❌ Prerequisites not met: {}", error)
-          logger.info("Please ensure Node.js is installed and accessible via PATH")
-        },
-        client => {
-          logger.info("✅ Prerequisites validated and LLM client initialized")
+    val result = for {
+      client <- validatePrerequisites()
+      mcpRegistry = MCPToolRegistry()
+      _ <- checkForTools(mcpRegistry)
+      _ <- runQueries(client, mcpRegistry)
+      _ <- closeMCPClient(mcpRegistry)
+    } yield ()
 
-          // Create MCP server configuration for Playwright
-          // Using stdio transport to launch and communicate with Playwright MCP server
-          val serverConfig = MCPServerConfig.stdio(
-            name = "playwright-mcp-server",
-            command = Seq("npx", "@playwright/mcp@latest"),
-            timeout = 60.seconds
-          )
-
-          // Set up tool registry with Playwright MCP tools
-          logger.info("🔧 Setting up tool registry with Playwright...")
-          logger.info("   This may take a moment while downloading @playwright/mcp...")
-
-          val mcpRegistry = new MCPToolRegistry(
-            mcpServers = Seq(serverConfig),
-            localTools = Seq.empty, // No local tools, using only Playwright MCP tools
-            cacheTTL = 10.minutes
-          )
-
-          // Show available tools
-          val allTools = mcpRegistry.getAllTools
-
-          Option
-            .when(allTools.nonEmpty)(allTools)
-            .fold {
-              logger.error("❌ No tools available from Playwright MCP server")
-              logger.info("This could indicate:")
-              logger.info("  1. The MCP server failed to start")
-              logger.info("  2. Network issues preventing package download")
-              logger.info("  3. Node.js or npx not properly installed")
-            } { tools =>
-              logger.info("📦 Available Playwright tools ({} total):", tools.size)
-              tools.zipWithIndex.foreach { case (tool, index) =>
-                logger.info("   {}. {}: {}", index + 1, tool.name, tool.description)
-              }
-
-              // Create and run agent
-              runBrowserAutomationQueries(client, mcpRegistry)
-
-              // Clean up
-              logger.info("🧹 Cleaning up MCP connections...")
-              mcpRegistry.closeMCPClients()
-
-              logger.info("✨ Browser automation example completed successfully!")
-            }
-        }
-      )
-    catch {
-      case e: Exception =>
-        logger.error("💥 Unexpected error: {}", e.getMessage, e)
-        logger.info("Please check the logs above for more details")
-    }
+    result.bimap(
+      e => logger.error("💥 Unexpected error: {}", e),
+      _ => logger.info("✨ Browser automation example completed successfully!")
+    )
   }
-
+  
   // Validate that prerequisites are installed
   private def checkCommand(cmd: String, toolName: String): Either[String, Unit] =
     Try {
       val process = new ProcessBuilder(cmd, "--version").start()
       val exited  = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
-      (process, exited)
-    }.toEither.left
-      .map(e => s"Error running $toolName ($cmd): ${e.getMessage}")
-      .flatMap {
-        case (_, false) =>
-          Left(s"$toolName process did not complete in time")
-
-        case (process, true) if process.exitValue() != 0 =>
-          Left(s"$toolName is not installed or not accessible")
-
-        case _ =>
-          Right(())
+      if (!exited) {
+        throw new RuntimeException(s"$toolName process did not complete in time")
       }
+      if (process.exitValue() != 0) {
+        throw new RuntimeException(s"$toolName is not installed or not accessible")
+      }
+    }.toEither.leftMap(ex => ex.getMessage)
 
   private def validatePrerequisites(): Either[String, LLMClient] =
     for {
       _ <- checkCommand("node", "Node.js")
       _ <- checkCommand("npx", "npx")
-    } yield LLM.client()
+    } yield {
+      logger.info("✅ Prerequisites validated and LLM client initialized")
+      LLM.client()
+    }
 
   // Run multiple browser automation queries to test different capabilities
   private def runBrowserAutomationQueries(client: org.llm4s.llmconnect.LLMClient, registry: MCPToolRegistry): Unit = {
@@ -216,8 +200,9 @@ object PlaywrightExample {
     maxSteps: Option[Int],
     traceLogPath: Option[String]
   ) = {
-    import scala.annotation.tailrec
     import org.llm4s.llmconnect.model.LLMError
+
+    import scala.annotation.tailrec
 
     // Write initial state if tracing is enabled
     traceLogPath.foreach(path => agent.writeTraceLog(initialState, path))

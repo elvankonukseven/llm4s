@@ -350,9 +350,19 @@ sbt +test
 sbt buildAll
 ```
 
-## 🧪 Hands-On Sessions & Live Collaboration
+## Hands-On Sessions & Live Collaboration
 
 Stay hands-on with **LLM4S**! Join us for interactive **mob programming** sessions, live debugging, and open-source collaboration. These events are great for developers, contributors, and anyone curious about Scala + GenAI.
+
+<br>
+
+<p align="center">
+  <img src="assets/llm4s_dev_hour/banner/llm4s-dev-hour-banner.png" alt="LLM4S Dev Hour Banner" width="800"/>
+  <br>
+  <em>🗓️ Weekly live coding and collaboration during LLM4S Dev Hour — join us every Sunday on Discord!</em>
+</p>
+
+<br>
 
 | Date                      | Session Title                                           | Description                                                                                                                                                          | Location       | Hosts                                | Details URL                                                                 | Featured In                                        |
 |---------------------------|--------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------|---------------------------------------|------------------------------------------------------------------------|----------------------------------------------------|
@@ -373,7 +383,7 @@ Stay updated with talks, workshops, and presentations about **LLM4S** happening 
   <img src="assets/talks/BayAreaScalaConference_IntroSlide.JPG" alt="Bay Area Scala Conference Generative AI Slide" width="400" style="margin-right: 10px;"/>
   <img src="assets/talks/ScalaIndia_Talk_Banner.png" alt="Scala India Talk Banner" width="400" style="margin-right: 10px;"/>
   <img src="assets/talks/DallasScalaEnthusiastsConference_Talk_Banner.png" alt="Dallas Scala Enthusiasts Talk Banner" width="400" style="margin-right: 10px;"/>
-  <img src="assets/talks/LondonScalaTalks_2025_Banner.jpg" alt="London Scala Talks 2025 Banner" width="400" style="margin-right: 10px;"/>
+  <img src="assets/talks/LondonScalaTalks_LLM4S_talk_2025_Banner.png" alt="London Scala Talks 2025 Banner" width="400" style="margin-right: 10px;"/>
   <img src="assets/talks/ScalaDays2025_Talk_Banner.jpg" alt="Scala Days 2025 Talk Banner" width="400" style="margin-right: 10px;"/>
   <img src="assets/talks/ZurichScalaEnthusiasts_2025_Banner.jpg" alt="Zurich Scala Enthusiasts 2025 Banner" width="400"/>
 
@@ -510,6 +520,80 @@ This page includes detailed information on all GSoC projects with Scala Center f
   
 Feel free to reach out to the contributors or mentors listed for any guidance or questions related to **GSoC 2026**.
 
+## 🚧 Behind the Build: Blogs & Series
+
+We’ve got exciting news to share — **Scalac**, one of the leading Scala development companies, has officially partnered with **LLM4S** for a dedicated **AI-focused blog series**!
+
+This collaboration was initiated after our talk at **Functional World 2025**, and it’s now evolving into a full-fledged multi-part series and an upcoming eBook hosted on Scalac’s platform. The series will combine practical Scala code, GenAI architecture, and reflections from the LLM4S team — making it accessible for Scala developers everywhere who want to build with LLMs.
+
+📝 The first post is already drafted and under review by the Scalac editorial team. We’re working together to ensure this content is both technically insightful and visually engaging.
+
+> 🎉 Thanks to Matylda Kamińska, Rafał Kruczek, and the Scalac marketing team for this opportunity and collaboration!
+
+Stay tuned — the series will be published soon on [scalac.io/blog](https://scalac.io/blog/), and we’ll link it here as it goes live.
+
+<br>
+
+<p align="center">
+  <img src="assets/blogging_with_scalac/LLM4s_x_Scalac_Collab_Banner.png" alt="LLM4S x Scalac Collaboration" width="600"/>
+</p>
+
+<br>
+
+---
+
+### ✍️ Blogs Powered by GSoC
+
+Our **Google Summer of Code (GSoC) 2025** contributors have actively documented their journeys, sharing insights and implementation deep-dives from their projects. These blog posts offer valuable perspectives on how LLM4S is evolving from a contributor-first lens.
+
+| Contributor | Blog(s) | Project |
+|-------------|---------|---------|
+| **Elvan Konukseven** | [elvankonukseven.com/blog](https://www.elvankonukseven.com/blog) | Agentic Toolkit for LLMs |
+| **Gopi Trinadh Maddikunta** | [Main Blog](https://gopitrinadh.site/blog) <br> [Scala at Light Speed – Part 1](https://gopitrinadh.site/scala-at-lightspeed-part1/) <br> [Scala at Light Speed – Part 2](https://gopitrinadh.site/scala-at-light-speed-gsoc-part2/) | RAG in a Box |
+| **Anshuman Awasthi** | [Anshuman's GSoC Journey](https://awesomegsoc.hashnode.dev/) | Multimodal LLM Support |
+| **Shubham Vishwakarma** | [Cracking the Code: My GSoC 2025 Story](https://shubhams-gsoc-journey.hashnode.dev/cracking-the-code-my-gsoc-2025-story) | Tracing and Observability |
+
+> 💡 These blogs reflect first-hand experience in building real-world AI tools using Scala, and are great resources for future contributors and researchers alike.
+
+### 📚 Where Innovation Speaks: Articles by GSoC's Brightest
+
+#### **Elvan Konukseven**
+- 🌐 [Main Blog](https://www.elvankonukseven.com/blog)
+- 📝 Articles:
+  - [The Application](https://elvankonukseven.com/blog/gsoc-application)
+  - [First Task](https://elvankonukseven.com/blog/first-task)
+
+#### **Gopi Trinadh Maddikunta**
+- 🌐 [Main Blog](https://gopitrinadh.site/blog)
+- 📝 Articles:
+  - [Spark of Curiosity](https://gopitrinadh.site/spark-of-curiosity/)
+  - [The Hunt Begins](https://gopitrinadh.site/the-hunt-begins/)
+  - [Enter Scala Center](https://gopitrinadh.site/enter-scala-center/)
+  - [Understanding the Mission](https://gopitrinadh.site/understanding-the-mission/)
+  - [Locking the Vision](https://gopitrinadh.site/locking-the-vision/)
+  - [The Proposal Sprint](https://gopitrinadh.site/the-proposal-sprint/))
+  - [The Acceptance Moment](https://gopitrinadh.site/the-acceptance-moment/)
+  - [Stepping In](https://gopitrinadh.site/stepping-in/)
+  - [Fiel for the Mission](https://gopitrinadh.site/fuel-for-the-mission/)
+  - [Scala at Light Speed – Part 1](https://gopitrinadh.site/scala-at-lightspeed-part1/)
+  - [Scala at Light Speed – Part 2](https://gopitrinadh.site/scala-at-light-speed-gsoc-part2/)
+  - [From Documents to Embeddings](https://gopitrinadh.site/diving-into-llmclient/)
+  - [Universal Extraction + Embedding Client = One step closer to RAG](https://gopitrinadh.site/embedding-anything/)
+  - [Midterm Milestone- Modular RAG in Motion](https://gopitrinadh.site/blog/#)
+
+
+#### **Anshuman Awasthi**
+- 🌐 [Main Blog : Anshuman's GSoC Journey](https://awesomegsoc.hashnode.dev/)
+- 📝 Articles:
+  - [My Journey to Google Summer of Code 2025](https://awesomegsoc.hashnode.dev/my-journey-to-google-summer-of-code-2025)
+  - [Community Bonding Experience at GSoC 2025](https://awesomegsoc.hashnode.dev/community-bonding-experience-at-gsoc-2025)
+  - [Milestone 1 : Successfully Added Image Generation Capabilities into the LLM4S Library](https://awesomegsoc.hashnode.dev/milestone-1-successfully-added-image-generation-capabilities-into-the-llm4s-library)
+
+#### **Shubham Vishwakarma**
+- 🌐 [Main Blog : Shubham's GSoC Journey](https://shubhams-gsoc-journey.hashnode.dev)
+- 📝 Articles:
+  - [Cracking the Code: My GSoC 2025 Story](https://shubhams-gsoc-journey.hashnode.dev/cracking-the-code-my-gsoc-2025-story)
+  - [My Scala Sprint: JVM to Poland Insights](https://shubhams-gsoc-journey.hashnode.dev/my-scala-sprint-jvm-to-poland-insights)
 ## Maintainers
 
 Want to connect with maintainers? The LLM4S project is maintained by:
