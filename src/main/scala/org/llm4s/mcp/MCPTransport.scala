@@ -27,6 +27,8 @@ trait MCPTransportImpl {
   def name: String
   // Sends a JSON-RPC request and waits for response
   def sendRequest(request: JsonRpcRequest): Either[String, JsonRpcResponse]
+  // Sends a JSON-RPC notification (no response expected)
+  def sendNotification(notification: JsonRpcNotification): Either[String, Unit]
   // Closes the transport connection
   def close(): Unit
 }
@@ -246,6 +248,64 @@ class StreamableHTTPTransportImpl(url: String, override val name: String, timeou
     }
   }
 
+  override def sendNotification(notification: JsonRpcNotification): Either[String, Unit] = {
+    logger.debug(s"StreamableHTTPTransport($name) sending notification to $url: method=${notification.method}")
+
+    Try {
+      val notificationJson = write(notification)
+      logger.debug(s"StreamableHTTPTransport($name) notification JSON: $notificationJson")
+
+      // Build headers for notification (same as requests)
+      val headers = buildNotificationHeaders()
+
+      // POST to MCP endpoint
+      val response = requests.post(
+        url,
+        data = notificationJson,
+        headers = headers,
+        readTimeout = timeout.toMillis.toInt,
+        connectTimeout = timeout.toMillis.toInt
+      )
+
+      logger.debug(
+        s"StreamableHTTPTransport($name) received HTTP response for notification: status=${response.statusCode}"
+      )
+
+      // Handle HTTP errors (notifications still use HTTP)
+      if (response.statusCode >= 400) {
+        val errorBody = Try(response.text()).getOrElse("Unknown error")
+        throw new RuntimeException(s"HTTP error ${response.statusCode}: $errorBody")
+      }
+
+      // For notifications, we don't parse the response body since no response is expected
+      logger.debug(s"StreamableHTTPTransport($name) notification sent successfully")
+      ()
+    } match {
+      case Success(_) =>
+        logger.debug(s"StreamableHTTPTransport($name) notification successful")
+        Right(())
+      case Failure(exception) =>
+        logger.error(s"StreamableHTTPTransport($name) notification error for $url: ${exception.getMessage}", exception)
+        Left(s"Notification error: ${exception.getMessage}")
+    }
+  }
+
+  /**
+   * Build headers for notifications (similar to requests but notifications don't expect responses).
+   */
+  private def buildNotificationHeaders(): Map[String, String] = {
+    val baseHeaders = Map(
+      "Content-Type" -> "application/json"
+      // No Accept header since we don't expect a response
+    )
+
+    // Add MCP-Protocol-Version header (notifications still need protocol version)
+    val headersWithProtocol = baseHeaders + ("MCP-Protocol-Version" -> "2025-06-18")
+
+    // Add session header if we have one
+    mcpSessionId.fold(headersWithProtocol)(sessionId => headersWithProtocol + ("mcp-session-id" -> sessionId))
+  }
+
   override def close(): Unit = {
     logger.info(s"StreamableHTTPTransport($name) closing connection to $url")
 
@@ -418,6 +478,61 @@ class SSETransportImpl(url: String, override val name: String, timeout: Duration
     jsonResponses.headOption.getOrElse {
       throw new RuntimeException("No valid JSON-RPC response found in SSE stream")
     }
+  }
+
+  override def sendNotification(notification: JsonRpcNotification): Either[String, Unit] = {
+    logger.debug(s"SSETransport($name) sending notification to $url: method=${notification.method}")
+
+    Try {
+      val notificationJson = write(notification)
+      logger.debug(s"SSETransport($name) notification JSON: $notificationJson")
+
+      // Build headers for notification
+      val headers = buildNotificationHeaders()
+
+      val response = requests.post(
+        url,
+        data = notificationJson,
+        headers = headers,
+        readTimeout = timeout.toMillis.toInt,
+        connectTimeout = timeout.toMillis.toInt
+      )
+
+      logger.debug(s"SSETransport($name) received HTTP response for notification: status=${response.statusCode}")
+
+      // Handle HTTP errors
+      if (response.statusCode >= 400) {
+        val errorBody = Try(response.text()).getOrElse("Unknown error")
+        throw new RuntimeException(s"HTTP error ${response.statusCode}: $errorBody")
+      }
+
+      // For notifications, we don't parse the response body since no response is expected
+      logger.debug(s"SSETransport($name) notification sent successfully")
+      ()
+    } match {
+      case Success(_) =>
+        logger.debug(s"SSETransport($name) notification successful")
+        Right(())
+      case Failure(exception) =>
+        logger.error(s"SSETransport($name) notification error for $url: ${exception.getMessage}", exception)
+        Left(s"Notification error: ${exception.getMessage}")
+    }
+  }
+
+  /**
+   * Build headers for notifications according to MCP 2024-11-05 specification.
+   */
+  private def buildNotificationHeaders(): Map[String, String] = {
+    val baseHeaders = Map(
+      "Content-Type" -> "application/json"
+      // No Accept header since we don't expect a response
+    )
+
+    // Add MCP-Protocol-Version header (notifications still need protocol version)
+    val headersWithProtocol = baseHeaders + ("MCP-Protocol-Version" -> protocolVersion)
+
+    // Add session header if we have one
+    mcpSessionId.fold(headersWithProtocol)(sessionId => headersWithProtocol + ("mcp-session-id" -> sessionId))
   }
 
   // Closes the HTTP client connection
@@ -716,6 +831,53 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
     }
     process = None
     // Process and streams cleaned up
+  }
+
+  // Sends JSON-RPC notification via subprocess stdin (no response expected)
+  override def sendNotification(notification: JsonRpcNotification): Either[String, Unit] = {
+    logger.debug(s"StdioTransport($name) sending notification: method=${notification.method}")
+
+    getOrStartProcess().flatMap { _ =>
+      stdinWriter match {
+        case Some(writer) =>
+          Try {
+            // Read any pending stderr for diagnostics
+            readAvailableStderr()
+
+            val notificationJson = write(notification)
+            logger.info(s"StdioTransport($name) writing notification to stdin: $notificationJson")
+
+            // Write notification as line-delimited JSON (one complete JSON object per line)
+            writer.println(notificationJson)
+            writer.flush() // Ensure the notification is immediately sent to the server
+
+            if (writer.checkError()) {
+              throw new RuntimeException("Failed to write notification to process stdin (broken pipe)")
+            }
+
+            // For notifications, we don't wait for a response - just return success
+            logger.debug(s"StdioTransport($name) notification sent successfully")
+            ()
+          } match {
+            case Success(_) =>
+              logger.debug(s"StdioTransport($name) notification successful")
+              Right(())
+            case Failure(exception) =>
+              // Read stderr for additional context
+              val stderrOutput = readAvailableStderr()
+              val errorMsg = if (stderrOutput.nonEmpty) {
+                s"${exception.getMessage}. Server stderr: $stderrOutput"
+              } else {
+                exception.getMessage
+              }
+
+              logger.error(s"StdioTransport($name) notification error: $errorMsg", exception)
+              Left(s"Stdio notification error: $errorMsg")
+          }
+        case None =>
+          Left("Process stdin writer not available")
+      }
+    }
   }
 
   // Terminates the subprocess and closes streams
