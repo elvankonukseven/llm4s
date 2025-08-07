@@ -1,7 +1,6 @@
 package org.llm4s.assistant
 
 import org.llm4s.agent.AgentState
-
 import java.time.LocalDateTime
 import java.util.UUID
 

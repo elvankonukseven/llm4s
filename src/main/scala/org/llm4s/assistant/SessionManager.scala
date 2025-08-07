@@ -1,6 +1,8 @@
 package org.llm4s.assistant
 
-import org.llm4s.agent.{ Agent, AgentState }
+import org.llm4s.agent.{ Agent, AgentState, AgentStatus }
+import org.llm4s.llmconnect.model._
+import org.llm4s.toolapi.ToolRegistry
 import cats.implicits._
 import java.nio.file.{ Files, Path, Paths, StandardOpenOption }
 import java.nio.charset.StandardCharsets
@@ -16,64 +18,230 @@ class SessionManager(sessionDir: String, agent: Agent) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   /**
-   * Ensures the session directory exists
+   * Converts SessionState to JSON format for persistence
    */
-  def ensureSessionDirectory(): Either[String, Path] = {
-    val path = Paths.get(sessionDir)
-    Try(Files.createDirectories(path)).toEither.leftMap(ex => s"Failed to create session directory: ${ex.getMessage}")
+  private def sessionStateToJson(state: SessionState): ujson.Value =
+    ujson.Obj(
+      "sessionId"    -> state.sessionId,
+      "sessionDir"   -> state.sessionDir,
+      "created"      -> state.created.toString,
+      "conversation" -> state.agentState.map(as => conversationToJson(as.conversation)).getOrElse(ujson.Null),
+      "userQuery"    -> state.agentState.map(as => ujson.Str(as.userQuery)).getOrElse(ujson.Str("")),
+      "status"       -> state.agentState.map(as => ujson.Str(as.status.toString)).getOrElse(ujson.Str("InProgress")),
+      "logs"         -> state.agentState.map(as => ujson.Arr.from(as.logs.map(ujson.Str(_)))).getOrElse(ujson.Arr())
+    )
+
+  /**
+   * Converts Conversation to JSON array
+   */
+  private def conversationToJson(conv: Conversation): ujson.Value =
+    ujson.Arr.from(conv.messages.map(messageToJson))
+
+  /**
+   * Converts individual Message to JSON object
+   */
+  private def messageToJson(msg: Message): ujson.Value = msg match {
+    case UserMessage(content) =>
+      ujson.Obj("type" -> "user", "content" -> ujson.Str(Option(content).getOrElse("")))
+    case SystemMessage(content) =>
+      ujson.Obj("type" -> "system", "content" -> ujson.Str(Option(content).getOrElse("")))
+    case ToolMessage(id, content) =>
+      ujson.Obj(
+        "type"       -> "tool",
+        "toolCallId" -> ujson.Str(Option(id).getOrElse("")),
+        "content"    -> ujson.Str(Option(content).getOrElse(""))
+      )
+    case AssistantMessage(content, toolCalls) =>
+      ujson.Obj(
+        "type"    -> "assistant",
+        "content" -> ujson.Str(content.getOrElse("")),
+        "toolCalls" -> ujson.Arr.from(
+          toolCalls.map(tc =>
+            ujson.Obj(
+              "id"        -> ujson.Str(Option(tc.id).getOrElse("")),
+              "name"      -> ujson.Str(Option(tc.name).getOrElse("")),
+              "arguments" -> Option(tc.arguments).getOrElse(ujson.Obj())
+            )
+          )
+        )
+      )
   }
 
   /**
-   * Saves a session and returns information about the saved session
+   * Ensures the session directory exists
+   */
+  private def ensureSessionDirectory(): Either[String, Path] =
+    Paths.get(sessionDir).asRight[String].flatMap { path =>
+      Try(Files.createDirectories(path)).toEither
+        .leftMap(ex => s"Failed to create session directory: ${ex.getMessage}")
+    }
+
+  /**
+   * Saves a session in both JSON and markdown formats
    */
   def saveSession(state: SessionState, title: Option[String] = None): Either[String, SessionInfo] =
     state.agentState match {
       case None =>
-        logger.debug("No agent state to save")
         Left("No agent state to save")
       case Some(agentState) =>
-        logger.info("Saving session {} with title: {}", state.sessionId, title.getOrElse("Session"))
-        for {
-          _           <- ensureSessionDirectory()
-          filePath    <- createFilePath(state, title)
-          content     <- formatSessionContent(agentState, title.getOrElse("Session"), state.created)
-          fileSize    <- writeSessionFile(filePath, content)
-          sessionInfo <- createSessionInfo(state, title.getOrElse("Session"), filePath, agentState, fileSize)
-        } yield {
-          logger.info("Successfully saved session to: {}", filePath)
-          sessionInfo
+        val sessionTitle = title.getOrElse("Session")
+        logger.info("Saving session {} with title: {}", state.sessionId, sessionTitle)
+        ensureSessionDirectory().flatMap { _ =>
+          createFilePaths(title).flatMap { case (jsonPath, markdownPath) =>
+            for {
+              jsonContent     <- createJsonContent(state)
+              markdownContent <- formatSessionContent(agentState, sessionTitle, state.created)
+              jsonSize        <- writeSessionFile(jsonPath, jsonContent)
+              _               <- writeSessionFile(markdownPath, markdownContent)
+              sessionInfo     <- createSessionInfo(state, sessionTitle, jsonPath, agentState, jsonSize)
+            } yield {
+              logger.info("Successfully saved session JSON: {} and markdown: {}", jsonPath, markdownPath)
+              sessionInfo
+            }
+          }
         }
     }
 
   /**
-   * Lists recent sessions
+   * Creates JSON content for session storage
    */
-  def listSessions(limit: Int = 10): Either[String, Seq[SessionSummary]] =
+  private def createJsonContent(state: SessionState): Either[String, String] =
+    Try(sessionStateToJson(state).toString()).toEither
+      .leftMap(ex => s"Failed to serialize session to JSON: ${ex.getMessage}")
+
+  /**
+   * Converts JSON back to SessionState for loading
+   */
+  private def jsonToSessionState(json: ujson.Value, tools: ToolRegistry): SessionState = {
+    val obj        = json.obj
+    val sessionId  = obj("sessionId").str
+    val sessionDir = obj("sessionDir").str
+    val created    = LocalDateTime.parse(obj("created").str)
+
+    val agentState =
+      if (obj("conversation") == ujson.Null) None
+      else {
+        val conversation = jsonToConversation(obj("conversation"))
+        val userQuery    = obj("userQuery").str
+        val status = obj("status").str match {
+          case "InProgress"      => AgentStatus.InProgress
+          case "WaitingForTools" => AgentStatus.WaitingForTools
+          case "Complete"        => AgentStatus.Complete
+          case failureStr if failureStr.startsWith("Failed(") =>
+            val errorMsg = failureStr.stripPrefix("Failed(").stripSuffix(")")
+            AgentStatus.Failed(errorMsg)
+          case other => AgentStatus.Failed(s"Unknown status: $other")
+        }
+        val logs = obj("logs").arr.map(_.str).toSeq
+        Some(AgentState(conversation, tools, userQuery, status, logs))
+      }
+
+    SessionState(agentState, sessionId, sessionDir, created)
+  }
+
+  /**
+   * Converts JSON array back to Conversation
+   */
+  private def jsonToConversation(json: ujson.Value): Conversation = {
+    val messages = json.arr.map(jsonToMessage).toSeq
+    Conversation(messages)
+  }
+
+  /**
+   * Converts JSON object back to Message
+   */
+  private def jsonToMessage(json: ujson.Value): Message = {
+    val obj = json.obj
+    obj("type").str match {
+      case "user"   => UserMessage(obj("content").str)
+      case "system" => SystemMessage(obj("content").str)
+      case "tool"   => ToolMessage(obj("toolCallId").str, obj("content").str)
+      case "assistant" =>
+        val content = obj("content").str match {
+          case ""  => None
+          case str => Some(str)
+        }
+        val toolCalls = obj("toolCalls").arr.map { tc =>
+          val tcObj = tc.obj
+          ToolCall(tcObj("id").str, tcObj("name").str, tcObj("arguments"))
+        }.toSeq
+        AssistantMessage(content, toolCalls)
+    }
+  }
+
+  /**
+   * Loads a session from JSON file by title
+   */
+  def loadSession(sessionTitle: String, tools: ToolRegistry): Either[String, SessionState] = {
+    val jsonPath = Paths.get(sessionDir, s"${sanitizeFilename(sessionTitle)}.json")
+
+    for {
+      _ <- ensureSessionDirectory()
+      _ <- Either.cond(Files.exists(jsonPath), (), s"Session '$sessionTitle' not found")
+      jsonContent <- Try(Files.readString(jsonPath, StandardCharsets.UTF_8)).toEither
+        .leftMap(ex => s"Failed to read session file: ${ex.getMessage}")
+      json <- Try(ujson.read(jsonContent)).toEither
+        .leftMap(ex => s"Failed to parse JSON: ${ex.getMessage}")
+      state <- Try(jsonToSessionState(json, tools)).toEither
+        .leftMap(ex => s"Failed to deserialize session: ${ex.getMessage}")
+    } yield {
+      logger.info("Successfully loaded session: {} from {}", sessionTitle, jsonPath)
+      state
+    }
+  }
+
+  /**
+   * Lists recent sessions for welcome screen display
+   */
+  def listRecentSessions(limit: Int = 5): Either[String, Seq[String]] =
     Try {
       Files
         .list(Paths.get(sessionDir))
-        .filter(_.toString.endsWith(".md"))
-        .filter(_.getFileName.toString.startsWith("session-"))
+        .filter(_.toString.endsWith(".json"))
         .toArray
         .map(_.asInstanceOf[Path])
-        .sortBy(_.getFileName.toString)
+        .sortBy(path => Try(Files.getLastModifiedTime(path)).getOrElse(java.nio.file.attribute.FileTime.fromMillis(0)))
         .reverse
         .take(limit)
+        .map(_.getFileName.toString.stripSuffix(".json"))
+        .toSeq
     }.toEither
-      .leftMap(ex => s"Failed to list sessions: ${ex.getMessage}")
-      .flatMap(paths => extractSessionSummaries(paths))
+      .leftMap(ex => s"Failed to list recent sessions: ${ex.getMessage}")
 
   /**
-   * Creates a file path for the session
+   * Creates file paths for the session (both JSON and markdown)
    */
-  private def createFilePath(state: SessionState, title: Option[String]): Either[String, Path] =
+  private def createFilePaths(title: Option[String]): Either[String, (Path, Path)] =
     Try {
-      val timestamp      = state.created.format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))
-      val sessionIdShort = state.sessionId.take(8)
-      val safeTitlePart  = title.map(t => s"-${sanitizeFilename(t)}").getOrElse("")
-      val filename       = s"session-$timestamp-$sessionIdShort$safeTitlePart.md"
-      Paths.get(sessionDir, filename)
-    }.toEither.leftMap(ex => s"Failed to create file path: ${ex.getMessage}")
+      val sessionTitle = title.getOrElse("Untitled Session")
+      val baseFilename = sanitizeFilename(sessionTitle)
+
+      // Handle naming collisions by appending numbers
+      val uniqueBasename = findUniqueFilename(baseFilename)
+
+      val jsonPath     = Paths.get(sessionDir, s"$uniqueBasename.json")
+      val markdownPath = Paths.get(sessionDir, s"$uniqueBasename.md")
+      (jsonPath, markdownPath)
+    }.toEither.leftMap(ex => s"Failed to create file paths: ${ex.getMessage}")
+
+  /**
+   * Finds a unique filename by appending numbers if necessary
+   */
+  private def findUniqueFilename(baseFilename: String): String = {
+    def checkExists(filename: String): Boolean =
+      Files.exists(Paths.get(sessionDir, s"$filename.json")) ||
+        Files.exists(Paths.get(sessionDir, s"$filename.md"))
+
+    if (!checkExists(baseFilename)) {
+      baseFilename
+    } else {
+      LazyList
+        .from(2)
+        .map(i => s"$baseFilename ($i)")
+        .find(!checkExists(_))
+        .getOrElse(s"$baseFilename (${System.currentTimeMillis()})")
+    }
+  }
 
   /**
    * Formats session content as markdown
@@ -125,48 +293,6 @@ class SessionManager(sessionDir: String, agent: Agent) {
     }.toEither.leftMap(ex => s"Failed to create session info: ${ex.getMessage}")
 
   /**
-   * Extracts session summaries from file paths
-   */
-  private def extractSessionSummaries(paths: Array[Path]): Either[String, Seq[SessionSummary]] = {
-    val summaries           = paths.map(extractSessionSummary).toSeq
-    val (errors, successes) = summaries.partitionMap(identity)
-
-    if (errors.nonEmpty) {
-      Left(s"Failed to extract some session summaries: ${errors.mkString(", ")}")
-    } else {
-      Right(successes)
-    }
-  }
-
-  /**
-   * Extracts session summary from a single file
-   */
-  private def extractSessionSummary(path: Path): Either[String, SessionSummary] = {
-    val filename = path.getFileName.toString
-
-    Try {
-      val content = Files.readString(path, StandardCharsets.UTF_8)
-      val title = content.linesIterator
-        .find(_.startsWith("# "))
-        .map(_.drop(2).trim)
-        .getOrElse(filename.stripSuffix(".md"))
-
-      val created = extractCreatedTime(filename)
-        .getOrElse(LocalDateTime.now()) // Fallback if parsing fails
-
-      val sessionId = extractSessionId(filename)
-        .getOrElse("unknown")
-
-      SessionSummary(
-        id = sessionId,
-        title = title,
-        filename = filename,
-        created = created
-      )
-    }.toEither.left.map(ex => s"Failed to extract summary from $filename: ${ex.getMessage}")
-  }
-
-  /**
    * Creates session header markdown
    */
   private def createSessionHeader(title: String, created: LocalDateTime, agentState: AgentState): String =
@@ -185,28 +311,4 @@ class SessionManager(sessionDir: String, agent: Agent) {
   private def sanitizeFilename(filename: String): String =
     filename.replaceAll("[^a-zA-Z0-9.-]", "_").take(50)
 
-  /**
-   * Extracts created time from filename
-   */
-  private def extractCreatedTime(filename: String): Option[LocalDateTime] =
-    Try {
-      val pattern = """session-(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}).*""".r
-      filename match {
-        case pattern(timestamp) =>
-          LocalDateTime.parse(timestamp, DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))
-        case _ => LocalDateTime.now()
-      }
-    }.toOption
-
-  /**
-   * Extracts session ID from filename
-   */
-  private def extractSessionId(filename: String): Option[String] =
-    Try {
-      val pattern = """session-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-([a-f0-9]{8}).*""".r
-      filename match {
-        case pattern(sessionId) => sessionId
-        case _                  => "unknown"
-      }
-    }.toOption
 }

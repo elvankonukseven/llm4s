@@ -8,9 +8,9 @@ import scala.util.Try
 /**
  * Handles console-based user interface using functional programming principles
  */
-class ConsoleInterface(tools: ToolRegistry) {
+class ConsoleInterface(tools: ToolRegistry, sessionManager: SessionManager) {
 
-  // ANSI color codes for better user experience
+  // ANSI color codes for terminal output formatting
   private val Colors = Map(
     "reset"  -> "\u001b[0m",
     "blue"   -> "\u001b[34m",
@@ -21,29 +21,45 @@ class ConsoleInterface(tools: ToolRegistry) {
     "bold"   -> "\u001b[1m"
   )
 
-  private def colorize(text: String, color: String): String =
+  def colorize(text: String, color: String): String =
     s"${Colors(color)}$text${Colors("reset")}"
 
   /**
-   * Shows welcome message
+   * Shows welcome message with recent sessions
    */
   def showWelcome(): Either[String, Unit] = {
+    val recentSessions = sessionManager.listRecentSessions(5).getOrElse(Seq.empty)
+
+    val recentSessionsDisplay = if (recentSessions.nonEmpty) {
+      s"""
+${colorize("Recent Sessions (load with /load \"name\"):", "bold")}
+${recentSessions.zipWithIndex
+          .map { case (title, index) =>
+            s"  ${index + 1}. ${colorize(title, "green")}"
+          }
+          .mkString("\n")}
+"""
+    } else {
+      ""
+    }
+
     val welcome = s"""
 ${colorize("╭─────────────────────────────────────────────╮", "cyan")}
 ${colorize("│           🤖 LLM4S Assistant Agent          │", "cyan")}
 ${colorize("╰─────────────────────────────────────────────╯", "cyan")}
 
 ${colorize("Available Tools:", "bold")}
-${tools.tools.map(tool => s"  • ${tool.name}").mkString("\n")}
+${tools.tools.map(tool => s"  • ${tool.name}").mkString("\n")}$recentSessionsDisplay
 
 ${colorize("Commands:", "bold")}
+  • ${colorize("/load \"Session Name\"", "yellow")} - Continue a previous session
   • ${colorize("/help", "yellow")} - Show this help message
   • ${colorize("/new", "yellow")} - Start a new conversation
   • ${colorize("/save [title]", "yellow")} - Save current session
   • ${colorize("/sessions", "yellow")} - List recent sessions
   • ${colorize("/quit", "yellow")} - Save and exit
 
-${colorize("Just type your message to start chatting!", "green")}
+${colorize("Just type your message to start chatting or load a session!", "green")}
 """
     Try(println(welcome)).toEither.leftMap(ex => s"Failed to show welcome message: ${ex.getMessage}")
   }
@@ -53,7 +69,21 @@ ${colorize("Just type your message to start chatting!", "green")}
    */
   def promptUser(): Either[String, String] =
     Try {
-      print(colorize("\n🤖 Assistant> ", "cyan"))
+      print(colorize("\nUser> ", "cyan"))
+      Option(StdIn.readLine())
+    }.toEither
+      .leftMap(ex => s"Failed to read input: ${ex.getMessage}")
+      .flatMap {
+        case Some(input) => Right(input)
+        case None        => Left("EOF reached")
+      }
+
+  /**
+   * Prompts user for input with custom prompt text
+   */
+  def promptForInput(promptText: String): Either[String, String] =
+    Try {
+      print(colorize(promptText, "yellow"))
       Option(StdIn.readLine())
     }.toEither
       .leftMap(ex => s"Failed to read input: ${ex.getMessage}")
@@ -71,7 +101,7 @@ ${colorize("Just type your message to start chatting!", "green")}
       case MessageType.Success           => colorize(message, "green")
       case MessageType.Warning           => colorize(message, "yellow")
       case MessageType.Error             => colorize(message, "red")
-      case MessageType.AssistantResponse => s"\n${colorize("🤖 Assistant:", "blue")} $message"
+      case MessageType.AssistantResponse => s"\n🤖 ${colorize("Assistant:", "green")} $message"
     }
 
     Try(println(coloredMessage)).toEither.leftMap(ex => s"Failed to display message: ${ex.getMessage}")
@@ -82,6 +112,7 @@ ${colorize("Just type your message to start chatting!", "green")}
    */
   def showHelp(): String =
     s"""${colorize("Available Commands:", "bold")}
+  • ${colorize("/load \"Session Name\"", "yellow")} - Continue a previous session
   • ${colorize("/help", "yellow")} - Show this help message
   • ${colorize("/new", "yellow")} - Start a new conversation (saves current)
   • ${colorize("/save [title]", "yellow")} - Save current session with optional title
@@ -100,15 +131,12 @@ ${colorize("Tips:", "bold")}
   /**
    * Formats session summaries for display
    */
-  def formatSessionList(sessions: Seq[SessionSummary]): String =
+  def formatSessionList(sessions: Seq[String]): String =
     if (sessions.isEmpty) {
       "No saved sessions found."
     } else {
       val formatted = sessions
-        .map { session =>
-          val formattedDate = session.created.toLocalDate.toString
-          s"  • ${colorize(session.title, "green")} (${session.filename}) - $formattedDate"
-        }
+        .map(title => s"  • ${colorize(title, "green")}")
         .mkString("\n")
 
       s"${colorize("Recent sessions:", "bold")}\n$formatted"

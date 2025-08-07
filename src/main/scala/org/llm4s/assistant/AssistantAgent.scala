@@ -20,7 +20,7 @@ class AssistantAgent(
   private val logger         = LoggerFactory.getLogger(getClass)
   private val agent          = new Agent(client)
   private val sessionManager = new SessionManager(sessionDir, agent)
-  private val console        = new ConsoleInterface(tools)
+  private val console        = new ConsoleInterface(tools, sessionManager)
 
   /**
    * Starts the interactive session loop
@@ -88,7 +88,6 @@ class AssistantAgent(
     for {
       updatedState <- addUserMessage(query, state)
       finalState   <- runAgentToCompletion(updatedState)
-      _            <- sessionManager.saveSession(finalState)
       response     <- extractFinalResponse(finalState)
     } yield {
       logger.debug("Successfully processed query, response length: {}", response.length)
@@ -105,20 +104,63 @@ class AssistantAgent(
         Right((state, console.showHelp()))
 
       case "/new" :: _ =>
-        for {
-          _ <- sessionManager.saveSession(state)
-          newState = state.withNewSession()
-        } yield (newState, "Started new session. Previous session saved.")
+        state.agentState match {
+          case Some(agentState) if agentState.conversation.messages.nonEmpty =>
+            // Prompt user for session name
+            for {
+              sessionName <- promptForSessionName(
+                "Enter a name for the current session (or press Enter for 'Untitled Session'): "
+              )
+              title = if (sessionName.trim.nonEmpty) sessionName.trim else "Untitled Session"
+              _ <- sessionManager.saveSession(state, Some(title))
+              newState = state.withNewSession()
+            } yield (newState, s"Previous session saved as '$title'. Started new session.")
+          case _ =>
+            // No session to save
+            val newState = state.withNewSession()
+            Right((newState, "Started new session."))
+        }
 
       case "/save" :: title =>
         val sessionTitle = if (title.nonEmpty) title.mkString(" ") else "Saved Session"
         sessionManager.saveSession(state, Some(sessionTitle)).map(_ => (state, s"Session saved as: $sessionTitle"))
 
+      case "/load" :: sessionTitle =>
+        val title = sessionTitle.mkString(" ").trim.stripPrefix("\"").stripSuffix("\"")
+        if (title.nonEmpty) {
+          for {
+            // Auto-save current session if it has content before loading new one
+            _ <- state.agentState match {
+              case Some(agentState) if agentState.conversation.messages.nonEmpty =>
+                sessionManager.saveSession(state, Some("Auto-saved Session"))
+              case _ =>
+                Right(SessionInfo("", "No session to save", "", state.created, 0, 0L))
+            }
+            loadedState <- sessionManager.loadSession(title, tools)
+            messageCount = loadedState.agentState.map(_.conversation.messages.length).getOrElse(0)
+          } yield (loadedState, s"✅ Session '$title' restored - $messageCount messages loaded")
+        } else {
+          Right((state, "Please specify a session title: /load \"Session Name\""))
+        }
+
       case "/sessions" :: _ =>
-        sessionManager.listSessions().map(sessions => (state, console.formatSessionList(sessions)))
+        sessionManager.listRecentSessions().map(sessions => (state, console.formatSessionList(sessions)))
 
       case "/quit" :: _ =>
-        sessionManager.saveSession(state).map(_ => (state, "Session saved. Goodbye!"))
+        state.agentState match {
+          case Some(agentState) if agentState.conversation.messages.nonEmpty =>
+            // Prompt user for session name before quitting
+            for {
+              sessionName <- promptForSessionName(
+                "Enter a name for the current session (or press Enter for 'Untitled Session'): "
+              )
+              title = if (sessionName.trim.nonEmpty) sessionName.trim else "Untitled Session"
+              _ <- sessionManager.saveSession(state, Some(title))
+            } yield (state, s"Session saved as '$title'. Goodbye!")
+          case _ =>
+            // No session to save
+            Right((state, "Goodbye!"))
+        }
 
       case _ =>
         Right((state, s"Unknown command: $command. Type /help for available commands."))
@@ -178,8 +220,14 @@ class AssistantAgent(
     }
 
   /**
+   * Prompts user for a session name
+   */
+  private def promptForSessionName(prompt: String): Either[String, String] =
+    console.promptForInput(prompt)
+
+  /**
    * Formats the assistant's response for display
    */
   private def formatAssistantResponse(response: String): String =
-    s"🤖 Assistant: $response"
+    s"🤖 ${console.colorize("Assistant>", "green")} $response"
 }
