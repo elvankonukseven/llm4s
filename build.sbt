@@ -109,6 +109,7 @@ lazy val commonSettings = Seq(
   libraryDependencies ++= List(
     "org.typelevel" %% "cats-core"       % "2.13.0",
     "com.lihaoyi"   %% "upickle"         % "4.2.1",
+    "com.lihaoyi"   %% "fansi"           % "0.5.0",
     "ch.qos.logback" % "logback-classic" % "1.5.18",
     "org.scalatest" %% "scalatest"       % "3.2.19" % Test
   )

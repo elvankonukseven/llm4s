@@ -70,19 +70,20 @@ class SessionManager(sessionDir: String, agent: Agent) {
   /**
    * Ensures the session directory exists
    */
-  private def ensureSessionDirectory(): Either[String, Path] =
-    Paths.get(sessionDir).asRight[String].flatMap { path =>
-      Try(Files.createDirectories(path)).toEither
-        .leftMap(ex => s"Failed to create session directory: ${ex.getMessage}")
-    }
+  private def ensureSessionDirectory(): Either[AssistantError, Path] = {
+    val path = Paths.get(sessionDir)
+    Try(Files.createDirectories(path)).toEither
+      .leftMap(ex => AssistantError.fileWriteFailed(sessionDir, ex))
+      .map(_ => path)
+  }
 
   /**
    * Saves a session in both JSON and markdown formats
    */
-  def saveSession(state: SessionState, title: Option[String] = None): Either[String, SessionInfo] =
+  def saveSession(state: SessionState, title: Option[String] = None): Either[AssistantError, SessionInfo] =
     state.agentState match {
       case None =>
-        Left("No agent state to save")
+        Left(AssistantError.SessionError("No agent state to save"))
       case Some(agentState) =>
         val sessionTitle = title.getOrElse("Session")
         logger.info("Saving session {} with title: {}", state.sessionId, sessionTitle)
@@ -105,9 +106,9 @@ class SessionManager(sessionDir: String, agent: Agent) {
   /**
    * Creates JSON content for session storage
    */
-  private def createJsonContent(state: SessionState): Either[String, String] =
+  private def createJsonContent(state: SessionState): Either[AssistantError, String] =
     Try(sessionStateToJson(state).toString()).toEither
-      .leftMap(ex => s"Failed to serialize session to JSON: ${ex.getMessage}")
+      .leftMap(ex => AssistantError.jsonSerializationFailed("SessionState", ex))
 
   /**
    * Converts JSON back to SessionState for loading
@@ -153,17 +154,49 @@ class SessionManager(sessionDir: String, agent: Agent) {
   private def jsonToMessage(json: ujson.Value): Message = {
     val obj = json.obj
     obj("type").str match {
-      case "user"   => UserMessage(obj("content").str)
-      case "system" => SystemMessage(obj("content").str)
-      case "tool"   => ToolMessage(obj("toolCallId").str, obj("content").str)
+      case "user" =>
+        UserMessage(obj("content") match {
+          case ujson.Null => ""
+          case str        => str.str
+        })
+      case "system" =>
+        SystemMessage(obj("content") match {
+          case ujson.Null => ""
+          case str        => str.str
+        })
+      case "tool" =>
+        ToolMessage(
+          obj("toolCallId") match {
+            case ujson.Null => ""
+            case str        => str.str
+          },
+          obj("content") match {
+            case ujson.Null => ""
+            case str        => str.str
+          }
+        )
       case "assistant" =>
-        val content = obj("content").str match {
-          case ""  => None
-          case str => Some(str)
+        val content = obj("content") match {
+          case ujson.Null             => None
+          case str if str.str.isEmpty => None
+          case str                    => Some(str.str)
         }
         val toolCalls = obj("toolCalls").arr.map { tc =>
           val tcObj = tc.obj
-          ToolCall(tcObj("id").str, tcObj("name").str, tcObj("arguments"))
+          ToolCall(
+            tcObj("id") match {
+              case ujson.Null => ""
+              case str        => str.str
+            },
+            tcObj("name") match {
+              case ujson.Null => ""
+              case str        => str.str
+            },
+            tcObj("arguments") match {
+              case ujson.Null => ujson.Obj()
+              case args       => args
+            }
+          )
         }.toSeq
         AssistantMessage(content, toolCalls)
     }
@@ -172,18 +205,22 @@ class SessionManager(sessionDir: String, agent: Agent) {
   /**
    * Loads a session from JSON file by title
    */
-  def loadSession(sessionTitle: String, tools: ToolRegistry): Either[String, SessionState] = {
+  def loadSession(sessionTitle: String, tools: ToolRegistry): Either[AssistantError, SessionState] = {
     val jsonPath = Paths.get(sessionDir, s"${sanitizeFilename(sessionTitle)}.json")
 
     for {
       _ <- ensureSessionDirectory()
-      _ <- Either.cond(Files.exists(jsonPath), (), s"Session '$sessionTitle' not found")
+      _ <- Either.cond(Files.exists(jsonPath), (), AssistantError.sessionNotFound(sessionTitle))
       jsonContent <- Try(Files.readString(jsonPath, StandardCharsets.UTF_8)).toEither
-        .leftMap(ex => s"Failed to read session file: ${ex.getMessage}")
+        .leftMap(ex => AssistantError.fileReadFailed(jsonPath.toString, ex))
       json <- Try(ujson.read(jsonContent)).toEither
-        .leftMap(ex => s"Failed to parse JSON: ${ex.getMessage}")
+        .leftMap(ex => AssistantError.jsonDeserializationFailed("JSON", ex))
+      _ = logger.debug("JSON content keys: {}", json.obj.keySet.mkString(", "))
       state <- Try(jsonToSessionState(json, tools)).toEither
-        .leftMap(ex => s"Failed to deserialize session: ${ex.getMessage}")
+        .leftMap { ex =>
+          logger.error("Failed to deserialize SessionState. JSON content preview: {}", jsonContent.take(500))
+          AssistantError.jsonDeserializationFailed("SessionState", ex)
+        }
     } yield {
       logger.info("Successfully loaded session: {} from {}", sessionTitle, jsonPath)
       state
@@ -193,7 +230,7 @@ class SessionManager(sessionDir: String, agent: Agent) {
   /**
    * Lists recent sessions for welcome screen display
    */
-  def listRecentSessions(limit: Int = 5): Either[String, Seq[String]] =
+  def listRecentSessions(limit: Int = 5): Either[AssistantError, Seq[String]] =
     Try {
       Files
         .list(Paths.get(sessionDir))
@@ -206,12 +243,12 @@ class SessionManager(sessionDir: String, agent: Agent) {
         .map(_.getFileName.toString.stripSuffix(".json"))
         .toSeq
     }.toEither
-      .leftMap(ex => s"Failed to list recent sessions: ${ex.getMessage}")
+      .leftMap(ex => AssistantError.fileReadFailed(sessionDir, ex))
 
   /**
    * Creates file paths for the session (both JSON and markdown)
    */
-  private def createFilePaths(title: Option[String]): Either[String, (Path, Path)] =
+  private def createFilePaths(title: Option[String]): Either[AssistantError, (Path, Path)] =
     Try {
       val sessionTitle = title.getOrElse("Untitled Session")
       val baseFilename = sanitizeFilename(sessionTitle)
@@ -222,10 +259,12 @@ class SessionManager(sessionDir: String, agent: Agent) {
       val jsonPath     = Paths.get(sessionDir, s"$uniqueBasename.json")
       val markdownPath = Paths.get(sessionDir, s"$uniqueBasename.md")
       (jsonPath, markdownPath)
-    }.toEither.leftMap(ex => s"Failed to create file paths: ${ex.getMessage}")
+    }.toEither.leftMap(ex =>
+      AssistantError.FileError(s"Failed to create file paths: ${ex.getMessage}", sessionDir, Some(ex))
+    )
 
   /**
-   * Finds a unique filename by appending numbers if necessary
+   * Finds a unique filename (by appending numbers if necessary)
    */
   private def findUniqueFilename(baseFilename: String): String = {
     def checkExists(filename: String): Boolean =
@@ -250,17 +289,19 @@ class SessionManager(sessionDir: String, agent: Agent) {
     agentState: AgentState,
     title: String,
     created: LocalDateTime
-  ): Either[String, String] =
+  ): Either[AssistantError, String] =
     Try {
       val header        = createSessionHeader(title, created, agentState)
       val agentMarkdown = agent.formatStateAsMarkdown(agentState)
       header + agentMarkdown
-    }.toEither.leftMap(ex => s"Failed to format session content: ${ex.getMessage}")
+    }.toEither.leftMap(ex =>
+      AssistantError.SerializationError(s"Failed to format session content: ${ex.getMessage}", Some(ex))
+    )
 
   /**
    * Writes session content to file and returns file size
    */
-  private def writeSessionFile(filePath: Path, content: String): Either[String, Long] =
+  private def writeSessionFile(filePath: Path, content: String): Either[AssistantError, Long] =
     Try {
       Files.write(
         filePath,
@@ -269,7 +310,7 @@ class SessionManager(sessionDir: String, agent: Agent) {
         StandardOpenOption.TRUNCATE_EXISTING
       )
       Files.size(filePath)
-    }.toEither.leftMap(ex => s"Failed to write session file: ${ex.getMessage}")
+    }.toEither.leftMap(ex => AssistantError.fileWriteFailed(filePath.toString, ex))
 
   /**
    * Creates session info from the saved session
@@ -280,7 +321,7 @@ class SessionManager(sessionDir: String, agent: Agent) {
     filePath: Path,
     agentState: AgentState,
     fileSize: Long
-  ): Either[String, SessionInfo] =
+  ): Either[AssistantError, SessionInfo] =
     Try {
       SessionInfo(
         id = state.sessionId,
@@ -290,7 +331,9 @@ class SessionManager(sessionDir: String, agent: Agent) {
         messageCount = agentState.conversation.messages.length,
         fileSize = fileSize
       )
-    }.toEither.leftMap(ex => s"Failed to create session info: ${ex.getMessage}")
+    }.toEither.leftMap(ex =>
+      AssistantError.SessionError(s"Failed to create session info: ${ex.getMessage}", Some(state.sessionId), Some(ex))
+    )
 
   /**
    * Creates session header markdown

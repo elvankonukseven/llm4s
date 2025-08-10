@@ -3,6 +3,7 @@ package org.llm4s.assistant
 import org.llm4s.agent.{ Agent, AgentState, AgentStatus }
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.model._
+import org.llm4s.error.ErrorBridge
 import org.llm4s.toolapi.ToolRegistry
 
 import java.util.UUID
@@ -15,17 +16,18 @@ import org.slf4j.LoggerFactory
 class AssistantAgent(
   client: LLMClient,
   tools: ToolRegistry,
-  sessionDir: String = "./sessions"
+  sessionDir: String = "./sessions",
+  consoleConfig: ConsoleConfig = ConsoleConfig()
 ) {
   private val logger         = LoggerFactory.getLogger(getClass)
   private val agent          = new Agent(client)
   private val sessionManager = new SessionManager(sessionDir, agent)
-  private val console        = new ConsoleInterface(tools, sessionManager)
+  private val console        = new ConsoleInterface(tools, sessionManager, consoleConfig)
 
   /**
    * Starts the interactive session loop
    */
-  def startInteractiveSession(): Either[String, Unit] = {
+  def startInteractiveSession(): Either[AssistantError, Unit] = {
     logger.info("Starting interactive assistant session")
     for {
       _ <- console.showWelcome()
@@ -38,17 +40,17 @@ class AssistantAgent(
   /**
    * Main interactive loop that processes user input until quit
    */
-  private def runInteractiveLoop(initialState: SessionState): Either[String, Unit] = {
-    def loop(state: SessionState): Either[String, Unit] =
+  private def runInteractiveLoop(initialState: SessionState): Either[AssistantError, Unit] = {
+    def loop(state: SessionState): Either[AssistantError, Unit] =
       console.promptUser().flatMap { input =>
         processInput(input.trim, state).fold(
           error =>
             // Continue on error
-            console.displayError(error).flatMap(_ => loop(state)),
+            console.displayError(error.message).flatMap(_ => loop(state)),
           { case (newState, response) =>
             // Display response if not empty
             val displayResult = if (response.nonEmpty) {
-              console.displayMessage(response, MessageType.Info)
+              console.displayMessage(response, MessageType.AssistantResponse)
             } else {
               Right(())
             }
@@ -71,7 +73,7 @@ class AssistantAgent(
   /**
    * Processes user input - either a command or a query for the agent
    */
-  private def processInput(input: String, state: SessionState): Either[String, (SessionState, String)] =
+  private def processInput(input: String, state: SessionState): Either[AssistantError, (SessionState, String)] =
     if (input.startsWith("/")) {
       handleCommand(input, state)
     } else if (input.nonEmpty) {
@@ -83,7 +85,7 @@ class AssistantAgent(
   /**
    * Processes a user query through the agent
    */
-  private def processQuery(query: String, state: SessionState): Either[String, (SessionState, String)] = {
+  private def processQuery(query: String, state: SessionState): Either[AssistantError, (SessionState, String)] = {
     logger.debug("Processing user query: {}", query.take(100))
     for {
       updatedState <- addUserMessage(query, state)
@@ -98,7 +100,7 @@ class AssistantAgent(
   /**
    * Handles slash commands
    */
-  private def handleCommand(command: String, state: SessionState): Either[String, (SessionState, String)] =
+  private def handleCommand(command: String, state: SessionState): Either[AssistantError, (SessionState, String)] =
     command.toLowerCase.split("\\s+").toList match {
       case "/help" :: _ =>
         Right((state, console.showHelp()))
@@ -169,7 +171,7 @@ class AssistantAgent(
   /**
    * Adds user message to the conversation - initializes if first message
    */
-  private def addUserMessage(query: String, state: SessionState): Either[String, SessionState] =
+  private def addUserMessage(query: String, state: SessionState): Either[AssistantError, SessionState] =
     state.agentState match {
       case None =>
         // First message - initialize the agent
@@ -187,16 +189,16 @@ class AssistantAgent(
   /**
    * Runs the agent until completion or failure
    */
-  private def runAgentToCompletion(state: SessionState): Either[String, SessionState] =
+  private def runAgentToCompletion(state: SessionState): Either[AssistantError, SessionState] =
     state.agentState match {
-      case None => Left("No agent state to run")
+      case None => Left(AssistantError.SessionError("No agent state to run"))
       case Some(agentState) =>
-        def runSteps(currentState: AgentState): Either[String, AgentState] =
+        def runSteps(currentState: AgentState): Either[AssistantError, AgentState] =
           currentState.status match {
             case AgentStatus.InProgress | AgentStatus.WaitingForTools =>
               agent.runStep(currentState) match {
                 case Right(newState) => runSteps(newState)
-                case Left(error)     => Left(error.toString)
+                case Left(error)     => Left(AssistantError.fromLLMError(ErrorBridge.toCore(error)))
               }
             case _ => Right(currentState)
           }
@@ -207,27 +209,27 @@ class AssistantAgent(
   /**
    * Extracts the final response from the agent state
    */
-  private def extractFinalResponse(state: SessionState): Either[String, String] =
+  private def extractFinalResponse(state: SessionState): Either[AssistantError, String] =
     state.agentState match {
-      case None => Left("No agent state available")
+      case None => Left(AssistantError.SessionError("No agent state available"))
       case Some(agentState) =>
         agentState.conversation.messages.reverse.collectFirst {
           case msg: AssistantMessage if msg.toolCalls.isEmpty => msg.content
         } match {
           case Some(content) => Right(content)
-          case None          => Left("No final response found from assistant")
+          case None          => Left(AssistantError.SessionError("No final response found from assistant"))
         }
     }
 
   /**
    * Prompts user for a session name
    */
-  private def promptForSessionName(prompt: String): Either[String, String] =
+  private def promptForSessionName(prompt: String): Either[AssistantError, String] =
     console.promptForInput(prompt)
 
   /**
    * Formats the assistant's response for display
    */
   private def formatAssistantResponse(response: String): String =
-    s"🤖 ${console.colorize("Assistant>", "green")} $response"
+    response // The ConsoleInterface handles assistant formatting via MessageType.AssistantResponse
 }
