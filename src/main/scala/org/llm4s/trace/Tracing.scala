@@ -1,9 +1,13 @@
 package org.llm4s.trace
 
 import org.llm4s.agent.AgentState
-import org.llm4s.config.EnvLoader
 import org.llm4s.llmconnect.model.{ TokenUsage, Completion }
 
+/**
+ * Legacy Tracing interface for backward compatibility
+ *
+ * @deprecated Use EnhancedTracing for new code
+ */
 trait Tracing {
   def traceEvent(event: String): Unit
   def traceAgentState(state: AgentState): Unit
@@ -11,6 +15,44 @@ trait Tracing {
   def traceError(error: Throwable): Unit
   def traceCompletion(completion: Completion, model: String): Unit
   def traceTokenUsage(usage: TokenUsage, model: String, operation: String): Unit
+}
+
+/**
+ * Bridge adapter to convert EnhancedTracing to legacy Tracing
+ */
+private class TracingBridge(enhanced: EnhancedTracing) extends Tracing {
+  def traceEvent(event: String): Unit =
+    enhanced.traceEvent(event).left.foreach(error => throw new RuntimeException(s"Tracing error: ${error.message}"))
+
+  def traceAgentState(state: AgentState): Unit =
+    enhanced
+      .traceAgentState(state)
+      .left
+      .foreach(error => throw new RuntimeException(s"Tracing error: ${error.message}"))
+
+  def traceToolCall(toolName: String, input: String, output: String): Unit =
+    enhanced
+      .traceToolCall(toolName, input, output)
+      .left
+      .foreach(error => throw new RuntimeException(s"Tracing error: ${error.message}"))
+
+  def traceError(error: Throwable): Unit =
+    enhanced
+      .traceError(error)
+      .left
+      .foreach(traceError => throw new RuntimeException(s"Tracing error: ${traceError.message}"))
+
+  def traceCompletion(completion: Completion, model: String): Unit =
+    enhanced
+      .traceCompletion(completion, model)
+      .left
+      .foreach(error => throw new RuntimeException(s"Tracing error: ${error.message}"))
+
+  def traceTokenUsage(usage: TokenUsage, model: String, operation: String): Unit =
+    enhanced
+      .traceTokenUsage(usage, model, operation)
+      .left
+      .foreach(error => throw new RuntimeException(s"Tracing error: ${error.message}"))
 }
 
 object Tracing {
@@ -22,18 +64,21 @@ object Tracing {
    * - "langfuse" (default): Uses LangfuseTracing to send traces to Langfuse
    * - "print": Uses PrintTracing to print traces to console
    * - "none": Uses NoOpTracing (no tracing)
+   *
+   * @deprecated Use EnhancedTracing.create() for new code
    */
   def create(): Tracing = {
-    val mode = EnvLoader.getOrElse("TRACING_MODE", "langfuse").toLowerCase
+    val enhanced = EnhancedTracing.create()
+    new TracingBridge(enhanced)
+  }
 
-    mode match {
-      case "langfuse" => new LangfuseTracing()
-      case "print"    => new PrintTracing()
-      case "none"     => new NoOpTracing()
-      case other =>
-        throw new IllegalArgumentException(
-          s"Unknown TRACING_MODE: '$other'. Valid options: langfuse, print, none"
-        )
-    }
+  /**
+   * Creates a Tracing instance with the specified mode
+   *
+   * @deprecated Use EnhancedTracing.create(mode) for new code
+   */
+  def create(mode: String): Tracing = {
+    val enhanced = EnhancedTracing.create(mode)
+    new TracingBridge(enhanced)
   }
 }

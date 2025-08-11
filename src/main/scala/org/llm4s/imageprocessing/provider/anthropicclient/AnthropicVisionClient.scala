@@ -1,12 +1,14 @@
-package org.llm4s.imageprocessing.provider
+package org.llm4s.imageprocessing.provider.anthropicclient
 
 import org.llm4s.imageprocessing._
 import org.llm4s.imageprocessing.config.AnthropicVisionConfig
+import org.llm4s.imageprocessing.provider.LocalImageProcessor
 import org.llm4s.llmconnect.model.LLMError
+
+import java.nio.file.{ Files, Paths }
 import java.time.Instant
 import java.util.Base64
-import java.nio.file.{ Files, Paths }
-import scala.util.{ Try, Success, Failure }
+import scala.util.{ Failure, Success, Try }
 
 /**
  * Anthropic Claude Vision client for AI-powered image analysis.
@@ -126,34 +128,11 @@ class AnthropicVisionClient(config: AnthropicVisionConfig) extends org.llm4s.ima
     Try {
       // This is a simplified implementation
       // In a real implementation, you would use an HTTP client to call the Anthropic API
-      import java.net.http.{ HttpClient, HttpRequest, HttpResponse }
       import java.net.URI
+      import java.net.http.{ HttpClient, HttpRequest, HttpResponse }
 
-      val client = HttpClient.newHttpClient()
-
-      val requestBody = s"""{
-        "model": "${config.model}",
-        "max_tokens": 1000,
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "type": "text",
-                "text": "$prompt"
-              },
-              {
-                "type": "image",
-                "source": {
-                  "type": "base64",
-                  "media_type": "image/jpeg",
-                  "data": "$base64Image"
-                }
-              }
-            ]
-          }
-        ]
-      }"""
+      val client      = HttpClient.newHttpClient()
+      val requestBody = AnthropicRequestBody.serialize(config.model, 1000, prompt, base64Image)
 
       val request = HttpRequest
         .newBuilder()

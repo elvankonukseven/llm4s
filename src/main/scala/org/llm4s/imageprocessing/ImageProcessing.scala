@@ -2,6 +2,7 @@ package org.llm4s.imageprocessing
 
 import org.llm4s.imageprocessing.config._
 import org.llm4s.imageprocessing.provider._
+import org.llm4s.imageprocessing.provider.anthropicclient.AnthropicVisionClient
 import org.llm4s.llmconnect.model.LLMError
 
 /**
