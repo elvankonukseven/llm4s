@@ -1,7 +1,7 @@
 package org.llm4s.assistant
 
 import org.llm4s.toolapi.ToolRegistry
-import org.llm4s.error.LLMError
+import org.llm4s.error.{ AssistantError, LLMError }
 import cats.implicits._
 import cats.Show
 import fansi._
@@ -81,7 +81,7 @@ ${config.styles.bold("Commands:")}
 ${config.colorScheme(MessageType.Success)("Just type your message to start chatting or load a session!")}
 """
     Try(println(welcome)).toEither.leftMap(ex =>
-      AssistantError.DisplayError(s"Failed to show welcome message: ${ex.getMessage}", Some(ex))
+      AssistantError.DisplayError(s"Failed to show welcome message: ${ex.getMessage}", "welcome", Some(ex))
     )
   }
 
@@ -93,10 +93,10 @@ ${config.colorScheme(MessageType.Success)("Just type your message to start chatt
       print(config.styles.prompt(s"\n${config.promptSymbol}"))
       Option(StdIn.readLine())
     }.toEither
-      .leftMap(ex => AssistantError.IOError(s"Failed to read input: ${ex.getMessage}", Some(ex)))
+      .leftMap(ex => AssistantError.IOError(s"Failed to read input: ${ex.getMessage}", "read", Some(ex)))
       .flatMap {
         case Some(input) => Right(input)
-        case None        => Left(AssistantError.EOFError("EOF reached"))
+        case None        => Left(AssistantError.EOFError("EOF reached", "read"))
       }
 
   /**
@@ -107,10 +107,10 @@ ${config.colorScheme(MessageType.Success)("Just type your message to start chatt
       print(config.styles.command(promptText))
       Option(StdIn.readLine())
     }.toEither
-      .leftMap(ex => AssistantError.IOError(s"Failed to read input: ${ex.getMessage}", Some(ex)))
+      .leftMap(ex => AssistantError.IOError(s"Failed to read input: ${ex.getMessage}", "read", Some(ex)))
       .flatMap {
         case Some(input) => Right(input)
-        case None        => Left(AssistantError.EOFError("EOF reached"))
+        case None        => Left(AssistantError.EOFError("EOF reached", "read"))
       }
 
   /**
@@ -127,7 +127,7 @@ ${config.colorScheme(MessageType.Success)("Just type your message to start chatt
     }
 
     Try(println(styledMessage)).toEither.leftMap(ex =>
-      AssistantError.DisplayError(s"Failed to display message: ${ex.getMessage}", Some(ex))
+      AssistantError.DisplayError(s"Failed to display message: ${ex.getMessage}", "message", Some(ex))
     )
   }
 
@@ -209,10 +209,10 @@ object MessageType {
 // Show instances for error types
 object ShowInstances {
   implicit val showAssistantError: Show[AssistantError] = Show.show {
-    case AssistantError.IOError(message, _)      => s"IO Error: $message"
-    case AssistantError.EOFError(message)        => s"EOF Error: $message"
-    case AssistantError.DisplayError(message, _) => s"Display Error: $message"
-    case error                                   => error.message
+    case AssistantError.IOError(message, _, _)      => s"IO Error: $message"
+    case AssistantError.EOFError(message, _)        => s"EOF Error: $message"
+    case AssistantError.DisplayError(message, _, _) => s"Display Error: $message"
+    case error                                      => error.message
   }
 
   implicit val showLLMError: Show[LLMError] = Show.show(_.formatted)

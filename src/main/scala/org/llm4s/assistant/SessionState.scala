@@ -1,6 +1,7 @@
 package org.llm4s.assistant
 
 import org.llm4s.agent.AgentState
+import org.llm4s.types.{ SessionId, DirectoryPath, FilePath }
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -9,8 +10,8 @@ import java.util.UUID
  */
 case class SessionState(
   agentState: Option[AgentState],
-  sessionId: String,
-  sessionDir: String,
+  sessionId: SessionId,
+  sessionDir: DirectoryPath,
   created: LocalDateTime = LocalDateTime.now()
 ) {
   def withAgentState(newState: AgentState): SessionState =
@@ -19,7 +20,7 @@ case class SessionState(
   def withNewSession(): SessionState =
     copy(
       agentState = None,
-      sessionId = UUID.randomUUID().toString,
+      sessionId = SessionId(UUID.randomUUID().toString),
       created = LocalDateTime.now()
     )
 }
@@ -28,9 +29,9 @@ case class SessionState(
  * Information about a saved session
  */
 case class SessionInfo(
-  id: String,
+  id: SessionId,
   title: String,
-  filePath: String,
+  filePath: FilePath,
   created: LocalDateTime,
   messageCount: Int,
   fileSize: Long
@@ -40,7 +41,7 @@ case class SessionInfo(
  * Summary of a session for listing purposes
  */
 case class SessionSummary(
-  id: String,
+  id: SessionId,
   title: String,
   filename: String,
   created: LocalDateTime

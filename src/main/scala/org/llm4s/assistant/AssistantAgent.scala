@@ -3,8 +3,10 @@ package org.llm4s.assistant
 import org.llm4s.agent.{ Agent, AgentState, AgentStatus }
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.model._
-import org.llm4s.error.ErrorBridge
+import org.llm4s.error.{ AssistantError, ErrorBridge, LLMError }
 import org.llm4s.toolapi.ToolRegistry
+import org.llm4s.types.{ SessionId, DirectoryPath, FilePath }
+import cats.implicits._
 
 import java.util.UUID
 import org.slf4j.LoggerFactory
@@ -21,7 +23,7 @@ class AssistantAgent(
 ) {
   private val logger         = LoggerFactory.getLogger(getClass)
   private val agent          = new Agent(client)
-  private val sessionManager = new SessionManager(sessionDir, agent)
+  private val sessionManager = new SessionManager(DirectoryPath(sessionDir), agent)
   private val console        = new ConsoleInterface(tools, sessionManager, consoleConfig)
 
   /**
@@ -31,7 +33,7 @@ class AssistantAgent(
     logger.info("Starting interactive assistant session")
     for {
       _ <- console.showWelcome()
-      initialState = SessionState(None, UUID.randomUUID().toString, sessionDir)
+      initialState = SessionState(None, SessionId(UUID.randomUUID().toString), DirectoryPath(sessionDir))
       _            = logger.info("Created new session: {}", initialState.sessionId)
       _ <- runInteractiveLoop(initialState)
     } yield logger.info("Interactive assistant session ended")
@@ -89,8 +91,10 @@ class AssistantAgent(
     logger.debug("Processing user query: {}", query.take(100))
     for {
       updatedState <- addUserMessage(query, state)
-      finalState   <- runAgentToCompletion(updatedState)
-      response     <- extractFinalResponse(finalState)
+      finalState <- runAgentToCompletion(updatedState).leftMap(llmError =>
+        AssistantError.SessionError(s"Agent execution failed: ${llmError.message}", state.sessionId, "agent-execution")
+      )
+      response <- extractFinalResponse(finalState)
     } yield {
       logger.debug("Successfully processed query, response length: {}", response.length)
       (finalState, formatAssistantResponse(response))
@@ -136,7 +140,7 @@ class AssistantAgent(
               case Some(agentState) if agentState.conversation.messages.nonEmpty =>
                 sessionManager.saveSession(state, Some("Auto-saved Session"))
               case _ =>
-                Right(SessionInfo("", "No session to save", "", state.created, 0, 0L))
+                Right(SessionInfo(SessionId(""), "No session to save", FilePath(""), state.created, 0, 0L))
             }
             loadedState <- sessionManager.loadSession(title, tools)
             messageCount = loadedState.agentState.map(_.conversation.messages.length).getOrElse(0)
@@ -189,16 +193,16 @@ class AssistantAgent(
   /**
    * Runs the agent until completion or failure
    */
-  private def runAgentToCompletion(state: SessionState): Either[AssistantError, SessionState] =
+  private def runAgentToCompletion(state: SessionState): Either[LLMError, SessionState] =
     state.agentState match {
-      case None => Left(AssistantError.SessionError("No agent state to run"))
+      case None => Left(LLMError.ConfigurationError("No agent state to run"))
       case Some(agentState) =>
-        def runSteps(currentState: AgentState): Either[AssistantError, AgentState] =
+        def runSteps(currentState: AgentState): Either[LLMError, AgentState] =
           currentState.status match {
             case AgentStatus.InProgress | AgentStatus.WaitingForTools =>
               agent.runStep(currentState) match {
                 case Right(newState) => runSteps(newState)
-                case Left(error)     => Left(AssistantError.fromLLMError(ErrorBridge.toCore(error)))
+                case Left(error)     => Left(ErrorBridge.toCore(error))
               }
             case _ => Right(currentState)
           }
@@ -211,13 +215,16 @@ class AssistantAgent(
    */
   private def extractFinalResponse(state: SessionState): Either[AssistantError, String] =
     state.agentState match {
-      case None => Left(AssistantError.SessionError("No agent state available"))
+      case None => Left(AssistantError.SessionError("No agent state available", state.sessionId, "extract-response"))
       case Some(agentState) =>
         agentState.conversation.messages.reverse.collectFirst {
           case msg: AssistantMessage if msg.toolCalls.isEmpty => msg.content
         } match {
           case Some(content) => Right(content)
-          case None          => Left(AssistantError.SessionError("No final response found from assistant"))
+          case None =>
+            Left(
+              AssistantError.SessionError("No final response found from assistant", state.sessionId, "extract-response")
+            )
         }
     }
 
