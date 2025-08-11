@@ -11,6 +11,21 @@
 <h4 align="center">
     <img src="assets/llm4s_logo.png" width="100pt" alt="LLM4S Logo">
 </h4>
+<br>
+
+## ⭐ Stars Over Time
+
+[![Star History Chart](https://api.star-history.com/svg?repos=llm4s/llm4s&type=Date)](https://star-history.com/#llm4s/llm4s&Date)
+
+<br>
+
+## Project Momentum
+
+![GitHub Repo stars](https://img.shields.io/github/stars/llm4s/llm4s?style=for-the-badge&label=Stars&color=yellow)
+![GitHub forks](https://img.shields.io/github/forks/llm4s/llm4s?style=for-the-badge&label=Forks&color=green)
+![GitHub contributors](https://img.shields.io/github/contributors/llm4s/llm4s?style=for-the-badge&label=Contributors&color=blue)
+![GitHub issues](https://img.shields.io/github/issues/llm4s/llm4s?style=for-the-badge&label=Open%20Issues&color=purple)
+<br>
 
 ## Overview
 
