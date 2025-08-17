@@ -18,7 +18,6 @@
 [![Star History Chart](https://api.star-history.com/svg?repos=llm4s/llm4s&type=Date)](https://star-history.com/#llm4s/llm4s&Date)
 
 <br>
-
 ## Project Momentum
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/llm4s/llm4s?style=for-the-badge&label=Stars&color=yellow)
@@ -30,7 +29,6 @@
 ## Overview
 
 LLM4S provides a simple, robust, and scalable framework for building LLM applications in Scala. While most LLM work is done in Python, we believe that Scala offers a fundamentally better foundation for building reliable, maintainable AI-powered applications.
-
 <br>
 
 <p align="center">
@@ -45,18 +43,51 @@ LLM4S provides a simple, robust, and scalable framework for building LLM applica
 
 ## Why Scala for LLMs?
 
-- **Type Safety**: Catch errors at compile time rather than runtime
-- **Functional Programming**: Immutable data structures and pure functions for more predictable code
-- **JVM Ecosystem**: Access to a vast array of libraries and tools
-- **Concurrency**: Better handling of concurrent operations with Scala's actor model
-- **Performance**: JVM performance with functional programming elegance
+- **Type Safety**: Catch errors at compile time, not in production.
+- **Functional Programming**: Immutable data and pure functions for predictable, maintainable systems.
+- **JVM Ecosystem**: Access to mature, production-grade libraries and tooling.
+- **Concurrency**: Advanced models for safe, efficient parallelism.
+- **Performance**: JVM speed with functional elegance.
+- **Ecosystem Interoperability**: Seamless integration with enterprise JVM systems and cloud-native tooling.
 
 ## Features
 
-- **Containerized Workspace**: Secure execution environment for LLM-driven operations
-- **Workspace Agent Interface**: Standardized protocol for file operations and command execution
-- **Multi-Provider Support**: Planned support for multiple LLM providers (OpenAI, Anthropic, etc.)
-- **Agent Trace Logging**: Detailed markdown logs of agent execution for debugging and analysis
+- **Multi-Provider Support**: Connect seamlessly to multiple LLM providers (OpenAI, Anthropic, etc.) with planned expansion.
+- **Execution Environments**: Run LLM-driven operations in secure, containerized or non-containerized setups.
+- **Error Handling**: Robust mechanisms to catch, log, and recover from failures gracefully.
+- **MCP Support**: Integration with Model Context Protocol for richer context management.
+- **Agent Framework**: Build single or multi-agent workflows with standardized interfaces.
+- **Multimodal Generation**: Support for text, image, voice, and other LLM modalities.
+- **RAG (Retrieval-Augmented Generation)**: Built-in tools for search, embedding, and retrieval workflows.
+- **Observability**: Detailed trace logging, monitoring, and analytics for debugging and performance insights.
+
+##  Architecture
+
+```text
+        ┌───────────────────────────┐
+        │    LLM4S API Layer        │
+        └──────────┬────────────────┘
+                   │
+          Multi-Provider Connector
+       (OpenAI | Anthropic | Future...)
+                   │
+         ┌─────────┴─────────┐
+         │ Execution Manager │
+         └─────────┬─────────┘
+                   │
+        ┌──────────┴──────────┐
+        │   Agent Framework   │
+        └──────────┬──────────┘
+                   │
+      ┌────────────┴────────────┐
+      │  RAG Engine + Tooling   │
+      └────────────┬────────────┘
+                   │
+     ┌─────────────┴─────────────┐
+     │   Observability Layer     │
+     └───────────────────────────┘
+
+```
 
 ## Project Structure
 
@@ -208,30 +239,32 @@ sbt fullCrossTest
 
 ## Roadmap
 
-Our goal is to implement Scala equivalents of popular Python LLM frameworks:
+Our goal is to implement Scala equivalents of popular Python LLM frameworks, with **multi-provider, multimodal, and observability-first design** as core principles:
 
-- [ ] * Single API access to multiple LLM providers (like LiteLLM) - llmconnect
-- [ ] A comprehensive toolchain for building LLM apps (like LangChain/LangGraph) 
-  - [ ] * RAG search
-  - [ ] * tool calling
-  - [ ] * logging/tracking/monitoring
-- [ ] * An agentic framework (like PydanticAI, CrewAI)
-  - [ ] Single agent
-  - [ ] Multi-agent
-- [ ] Tokenization utilities (port of tiktoken)
-- [ ] Examples/ support
-   - [ ] * Standard tool calling libraries
-   - [ ] * examples of all use-cases
-- [ ] stable platform -tests etc
-- [ ] Scala Coding SWE Agent - an agent that can do SWE bench type tasks on Scala codebases.
-   - [ ]  code maps 
-   - [ ]  generation 
-   - [ ]  templates for library use?
+- [ ] Single API access to multiple LLM providers (like LiteLLM) — **llmconnect**
+- [ ] Comprehensive toolchain for building LLM apps (LangChain/LangGraph equivalent)
+  - [ ] RAG search & retrieval
+  - [ ] Tool calling
+  - [ ] Logging, tracking, and monitoring
+- [ ] Agentic framework (like PydanticAI, CrewAI)
+  - [ ] Single-agent and multi-agent orchestration
+- [ ] Tokenization utilities (Scala port of tiktoken)
+- [ ] Examples for all supported modalities and workflows
+- [ ] Stable platform with extensive test coverage
+- [ ] Scala Coding SWE Agent — perform SWE Bench–type tasks on Scala codebases
+  - [ ] Code maps, code generation, and library templates
 
 
 ## Tool Calling
 
-Tool calling is a critical integration - we aim to make it as simple as possible:
+Tool calling is a critical integration — designed to work seamlessly with **multi-provider support** and **agent frameworks**.  
+We use ScalaMeta to auto-generate tool definitions, support dynamic mapping, and run in **secure execution environments**.
+
+Tools can run:
+
+- In **containerized sandboxes** for isolation and safety.
+- In **multi-modal pipelines** where LLMs interact with text, images, and voice.
+- With **observability hooks** for trace analysis.
 
 ### Tool Signature Generation
 
@@ -261,9 +294,15 @@ Mapping LLM tool call requests to actual method invocations through:
 
 Tools run in a protected Docker container environment to prevent accidental system damage or data leakage.
 
-## Comprehensive Tracing System
+## Comprehensive Tracing & Observability
 
-LLM4S provides a powerful, configurable tracing system for monitoring, debugging, and analyzing your LLM applications with support for multiple backends.
+Tracing isn’t just for debugging — it’s the backbone of understanding model behavior.  
+LLM4S’s observability layer includes:
+
+- Detailed token usage reporting
+- Multi-backend trace output (Langfuse, console, none)
+- Agent state visualization
+- Integration with monitoring dashboards
 
 ### Tracing Modes
 
@@ -298,9 +337,14 @@ tracer.traceAgentState(agentState)
 ```
 ### Usage using starter kit `llm4s.g8`
 #### A carefully crafted starter kit to unlock the power of llm4s
-llm4s.g8 is a starter kit for building AI-powered applications using [llm4s].
-Improved SDK usability and developer ergonomics. You can now spin up a fully working scala project with a single `sbt` command.
+
+> **Note:** The LLM4S template has moved to its own repository for better maintainability and independent versioning.
+
+The llm4s.g8 starter kit helps you quickly create AI-powered applications using llm4s.
+It is a starter kit for building AI-powered applications using [llm4s] with improved SDK usability and developer ergonomics. You can now spin up a fully working scala project with a single `sbt` command.
 The starter kit comes pre-configured with best practices, prompt execution examples, CI, formatting hooks, unit testing, documentation, and cross-platform support.
+
+**Template Repository:** [github.com/llm4s/llm4s.g8](https://github.com/llm4s/llm4s.g8)
 
 Using `sbt`, do:
 ```
@@ -315,7 +359,9 @@ sbt new llm4s/llm4s.g8 \
 --force
 ```
 to create new project.
-Use the comprehensive [documentation](docs/llm4s-g8-starter-kit.md) to get started with the project using started kit.
+
+For more information about the template, including compatibility matrix and documentation, visit the [template repository](https://github.com/llm4s/llm4s.g8).
+Use the comprehensive [documentation](docs/llm4s-g8-starter-kit.md) to get started with the project using starter kit.
 
 ----
 
@@ -425,7 +471,7 @@ Stay updated with talks, workshops, and presentations about **LLM4S** happening 
 | **28-May-2025** | Functional World 2025 by Scalac | Let's Teach LLMs to Write Great Scala! (Updated from Apr 2025)    | Gdansk, Poland 🇵🇱                                                                                                              | Kannupriya Kalra            | [LinkedIn Post 1](https://www.linkedin.com/posts/scalac_ai-functionalworld-scala-ugcPost-7326538223818563584-U2Ru) <br> [LinkedIn Post 2](https://www.linkedin.com/posts/scalac_lets-teach-llms-to-write-great-scala-ugcPost-7332752921190625281-K2YD) <br> [Reddit Discussion](https://www.reddit.com/r/scala/comments/1krvvgv/meetup_lets_teach_llms_to_write_great_scala/) <br> [Meetup Link](https://www.meetup.com/functionalworld/events/307654612/?eventOrigin=group_upcoming_events) <br> [X/Twitter Post](https://x.com/FunctionalWorld/status/1920776605015674943)                                                                                                                                                                                                                                                                                                                               | [Watch Recording](https://www.youtube.com/watch?v=cNAmsIpSsgk&ab_channel=Scalac)                      | [Scalendar (May 2025)](https://www.linkedin.com/pulse/scalendar-may-2025-scalac-qck6e/?trackingId=aSO5CkxeSB2O0U4GPUxJuw%3D%3D) <br> [Scala Times 1](https://scalatimes.com/ead904f5c2) <br> [Scala Times 2](https://scalatimes.com/af935bf2d5) |
 | **13-Jun-2025** | Dallas Scala Enthusiasts      | Let's Teach LLMs to Write Great Scala! (Updated from May 2025)   | Dallas, Texas, USA 🇺🇸                                                                                                           | Kannupriya Kalra            | [Meetup Event](https://www.meetup.com/dallas-scala-enthusiasts/events/307717420/?eventOrigin=find_page%24all) <br> [LinkedIn Post](https://www.linkedin.com/posts/kannupriyakalra_scala-ai-llm4s-activity-7338339521807212544-t5gT) <br> [X/Twitter Post](https://x.com/KannupriyaKalra/status/1932864594025836700) <br> [Reddit Discussion](https://www.reddit.com/r/scala/comments/1l9iheb/talk_llm4s_talk_in_dallas_scala_meets_ai_june_13/) <br> [Bluesky Post](https://bsky.app/profile/kannupriyakalra.bsky.social/post/3lrfuplb3oc2n) <br> [Mastodon Post](https://functional.cafe/@kannupriyakalra/114672918629990024)                                                                                              | [Watch Recording](https://www.youtube.com/watch?v=-PnsSSWTye0&ab_channel=DallasScalaEnthusiasts)     | [Scalendar (June 2025)](https://www.linkedin.com/pulse/scalendar-june-2025-scalac-fmiwe/?trackingId=ifE4kllzPvQvBqItbqXL4w%3D%3D)                                           |
 | **13-Aug-2025** | London Scala Users Group      | Scala Meets GenAI: Build the Cool Stuff with LLM4S               | [The Trade Desk](https://www.thetradedesk.com/) office, London, UK 🇬🇧                                                          | Kannupriya Kalra, Rory Graves | [Meetup Event](https://www.meetup.com/london-scala/events/308564399/?utm_medium=email&utm_campaign=rsvp-confirmation-social) <br> [X/Twitter Post](https://x.com/KannupriyaKalra/status/1949925385992622131) <br> [Bluesky Post](https://bsky.app/profile/kannupriyakalra.bsky.social/post/3lv2g77b2yk2s) <br> [LinkedIn Post](https://www.linkedin.com/posts/kannupriyakalra_scala-genai-llms-activity-7357084500595482626-CxBe?utm_source=share&utm_medium=member_desktop&rcm=ACoAAA8qk7UBmvcZ2O7aAJfMpsdEXBvcKSNiHWM) | Recording will be posted once the event is done                                                      | [Scalendar (August 2025)](https://www.linkedin.com/pulse/scalendar-august-2025-scalac-cxoje/?trackingId=c5MNCnKeSOeff0LojUz0ug%3D%3D) |
-| **21-Aug-2025** | Scala Days 2025               | Scala Meets GenAI: Build the Cool Stuff with LLM4S               | SwissTech Convention Center, [EPFL](https://www.epfl.ch/en/) campus, Lausanne, Switzerland 🇨🇭                                | Kannupriya Kalra, Rory Graves | [Talk Info](https://scaladays.org/editions/2025/talks/scala-meets-genai-build-the) <br> [LinkedIn Post](https://www.linkedin.com/feed/update/urn:li:activity:7348123421945262080/) <br> [X/Twitter Post](https://x.com/KannupriyaKalra/status/1942369453267947900) <br> [Reddit Discussion](https://www.reddit.com/r/scala/comments/1lua1ud/talk_llm4s_at_scala_days_2025_scala_meets_genai/) <br> [Bluesky Post](https://bsky.app/profile/kannupriyakalra.bsky.social/post/3ltfyhmlsi22p) <br> [Mastodon Post](https://functional.cafe/@kannupriyakalra/114814671581110365)                                                                                                       | Recording will be posted once the event is done                                                      | [Scalendar (August 2025)](https://www.linkedin.com/pulse/scalendar-august-2025-scalac-cxoje/?trackingId=c5MNCnKeSOeff0LojUz0ug%3D%3D) |
+| **21-Aug-2025** | Scala Days 2025               | Scala Meets GenAI: Build the Cool Stuff with LLM4S               | SwissTech Convention Center, [EPFL](https://www.epfl.ch/en/) campus, Lausanne, Switzerland 🇨🇭                                | Kannupriya Kalra, Rory Graves | [Talk Info](https://scaladays.org/editions/2025/talks/scala-meets-genai-build-the) <br> [LinkedIn Post](https://www.linkedin.com/feed/update/urn:li:activity:7348123421945262080/) <br> [X/Twitter Post](https://x.com/KannupriyaKalra/status/1942369453267947900) <br> [Reddit Discussion](https://www.reddit.com/r/scala/comments/1lua1ud/talk_llm4s_at_scala_days_2025_scala_meets_genai/) <br> [Bluesky Post](https://bsky.app/profile/kannupriyakalra.bsky.social/post/3ltfyhmlsi22p) <br> [Mastodon Post](https://functional.cafe/@kannupriyakalra/114814671581110365)                                                                                                       | Recording will be posted once the event is done                                                      | [Scala Days 2025: August in Lausanne – Code, Community & Innovation](https://scalac.io/blog/scala-days-2025-august-lausanne-code-community-innovation/) <br> [Scalendar (August 2025)](https://www.linkedin.com/pulse/scalendar-august-2025-scalac-cxoje/?trackingId=c5MNCnKeSOeff0LojUz0ug%3D%3D) <br> [Scala Days 2025 LinkedIn Post](https://www.linkedin.com/posts/scalac_scala-scalac-scaladays2025-activity-7359538627879571456-5YKa?utm_source=share&utm_medium=member_desktop&rcm=ACoAAA8qk7UBmvcZ2O7aAJfMpsdEXBvcKSNiHWM) |
 | **25-Aug-2025** | Zürich Scala Enthusiasts      | Fork It Till You Make It: Career Building with Scala OSS         | Rivero AG, ABB Historic Building, Elias-Canetti-Strasse 7, Zürich, Switzerland 🇨🇭                                             | Kannupriya Kalra            | [Meetup Event](https://lnkd.in/emMVS8Mj) <br> [LinkedIn Post](https://www.linkedin.com/posts/kannupriyakalra_scala-opensource-llm4s-activity-7354152797799342080-O_ik) <br> [X/Twitter Post](https://x.com/KannupriyaKalra/status/1948388464837226568) <br> [Bluesky Post](https://bsky.app/profile/kannupriyakalra.bsky.social/post/3lupqmo2z722j) <br> [Mastodon Post](https://functional.cafe/@kannupriyakalra/114908674646390403) <br> [Reddit Discussion](https://www.reddit.com/r/scala/comments/1m867vu/zurich_career_growth_through_scala_oss_join_our/)                                                                                     | Recording will be posted once the event is done                                                      | [Scalendar (August 2025)](https://www.linkedin.com/pulse/scalendar-august-2025-scalac-cxoje/?trackingId=c5MNCnKeSOeff0LojUz0ug%3D%3D) |
 | **23-25-Oct-2025** | Google Summer Of Code Mentor Summit 2025 | LLM4S x GSoC 2025: Engineering GenAI Agents in Functional Scala | Munich Marriott Hotel, Berliner Str. 93, 80805 München, Germany 🇩🇪                                                             | Kannupriya Kalra            | [Event Website](https://sites.google.com/view/2025mentorsummit/home)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Recording will be posted once the event is done                                                      | –                                                                                              |
 
@@ -537,6 +583,17 @@ This page includes detailed information on all GSoC projects with Scala Center f
   
 Feel free to reach out to the contributors or mentors listed for any guidance or questions related to **GSoC 2026**.
 
+<br>
+
+<p align="center">
+ <img src="assets/gsoc_assets/gsoc_2025/gsoc_2025_contributors_shoutout.png" alt="Contributors_banner_shoutout" width="600"/>
+  <br>
+  <em>Contributors selected across the globe for GSoC 2025 program.</em>
+</p>
+
+<br>
+
+
 ## 🚧 Behind the Build: Blogs & Series
 
 We’ve got exciting news to share — **Scalac**, one of the leading Scala development companies, has officially partnered with **LLM4S** for a dedicated **AI-focused blog series**!
@@ -553,6 +610,8 @@ Stay tuned — the series will be published soon on [scalac.io/blog](https://sca
 
 <p align="center">
   <img src="assets/blogging_with_scalac/LLM4s_x_Scalac_Collab_Banner.png" alt="LLM4S x Scalac Collaboration" width="600"/>
+  <br>
+  <em>LLM4S blogs powered by Scalac.</em>
 </p>
 
 <br>

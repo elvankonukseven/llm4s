@@ -1,0 +1,51 @@
+{
+  "name": "llm4s dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  // Give the container access to your local Docker Engine so the
+  // workspace runner can spin up its own containers.
+  "runArgs": [
+    "--init",
+    "-v", "/var/run/docker.sock:/var/run/docker.sock"
+    // Uncomment if you have an NVIDIA GPU and want CUDA inside:
+    // ,"--gpus=all"
+  ],
+  "features": {
+    // Helpful utilities (git, zsh, curl, etc.)
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    // Docker CLI inside the container (talks to mounted socket)
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "scala-lang.scala",          // Metals
+        "scalameta.metals",          // Metals helper
+        "redhat.vscode-xml",
+        "ms-azuretools.vscode-docker",
+        "adam-bender.commit-message-editor",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "metals.javaHome": "/usr/lib/jvm/msopenjdk-21-amd64",
+        "files.watcherExclude": {
+          "**/target/**": true,
+          "**/.bloop/**": true,
+          "**/.metals/**": true
+        }
+      }
+    }
+  },
+  // Warm the coursier + sbt caches and verify both Scala versions compile
+  "postCreateCommand": "sbt -v +compile",
+  "remoteEnv": {
+    // Put your keys in your local env or VS Code secret store;
+    // these placeholders let Metals/SBT see them if you set them.
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}",
+    "OPENAI_BASE_URL": "${localEnv:OPENAI_BASE_URL}",
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    "LLM_MODEL": "${localEnv:LLM_MODEL}"
+  }
+}
