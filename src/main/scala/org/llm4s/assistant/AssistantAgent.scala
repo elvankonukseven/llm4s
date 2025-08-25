@@ -151,58 +151,145 @@ class AssistantAgent(
         Right((state, console.showHelp()))
 
       case Command.New =>
-        state.agentState match {
-          case Some(agentState) if agentState.conversation.messages.nonEmpty =>
-            // Prompt user for session name
-            for {
-              sessionName <- promptForSessionName(
-                "Enter a name for the current session (or press Enter for 'Untitled Session'): "
-              )
-              title = if (sessionName.trim.nonEmpty) sessionName.trim else "Untitled Session"
-              _ <- sessionManager.saveSession(state, Some(title))
-              newState = state.withNewSession()
-            } yield (newState, s"Previous session saved as '$title'. Started new session.")
-          case _ =>
-            // No session to save
-            val newState = state.withNewSession()
-            Right((newState, "Started new session."))
-        }
+        handleNewSessionCommand(state)
 
       case Command.Save(titleOpt) =>
         val sessionTitle = titleOpt.getOrElse("Saved Session")
         sessionManager.saveSession(state, Some(sessionTitle)).map(_ => (state, s"Session saved as: $sessionTitle"))
 
       case Command.Load(title) =>
-        for {
-          // Auto-save current session if it has content before loading new one
-          _ <- state.agentState match {
-            case Some(agentState) if agentState.conversation.messages.nonEmpty =>
-              sessionManager.saveSession(state, Some("Auto-saved Session"))
-            case _ =>
-              Right(SessionInfo(SessionId(""), "No session to save", FilePath(""), state.created, 0, 0L))
-          }
-          loadedState <- sessionManager.loadSession(title, tools)
-          messageCount = loadedState.agentState.map(_.conversation.messages.length).getOrElse(0)
-        } yield (loadedState, s"✅ Session '$title' restored - $messageCount messages loaded")
+        handleLoadSessionCommand(title, state)
 
       case Command.Sessions =>
         sessionManager.listRecentSessions().map(sessions => (state, console.formatSessionList(sessions)))
 
       case Command.Quit =>
-        state.agentState match {
-          case Some(agentState) if agentState.conversation.messages.nonEmpty =>
-            // Prompt user for session name before quitting
-            for {
-              sessionName <- promptForSessionName(
-                "Enter a name for the current session (or press Enter for 'Untitled Session'): "
-              )
-              title = if (sessionName.trim.nonEmpty) sessionName.trim else "Untitled Session"
-              _ <- sessionManager.saveSession(state, Some(title))
-            } yield (state, s"Session saved as '$title'. Goodbye!")
-          case _ =>
-            // No session to save
-            Right((state, "Goodbye!"))
+        handleQuitCommand(state)
+    }
+
+  /**
+   * Checks if current session has content worth saving
+   */
+  private def hasContentToSave(state: SessionState): Boolean =
+    state.agentState.exists(_.conversation.messages.nonEmpty)
+
+  /**
+   * Prompts user and gets clean session name with default
+   */
+  private def getSessionNameWithDefault(): Either[AssistantError, String] =
+    promptForSessionName("Enter a name for the current session (or press Enter for 'Untitled Session'): ")
+      .map(name => if (name.trim.nonEmpty) name.trim else "Untitled Session")
+
+  /**
+   * Saves current session with given title
+   */
+  private def saveCurrentSession(state: SessionState, title: String): Either[AssistantError, Unit] =
+    sessionManager.saveSession(state, Some(title)).map(_ => ())
+
+  /**
+   * Creates new session state
+   */
+  private def createNewSessionState(state: SessionState): SessionState =
+    state.withNewSession()
+
+  /**
+   * Formats success message for saved session
+   */
+  private def formatSavedSessionMessage(title: String): String =
+    s"Previous session saved as '$title'. Started new session."
+
+  /**
+   * Formats message for fresh session
+   */
+  private def formatFreshSessionMessage(): String =
+    "Started new session."
+
+  /**
+   * Loads session with given title
+   */
+  private def loadSession(title: String): Either[AssistantError, SessionState] =
+    sessionManager.loadSession(title, tools)
+
+  /**
+   * Counts messages in session state
+   */
+  private def countMessagesInSession(state: SessionState): Int =
+    state.agentState.map(_.conversation.messages.length).getOrElse(0)
+
+  /**
+   * Formats load success message
+   */
+  private def formatLoadSuccessMessage(title: String, messageCount: Int): String =
+    s"✅ Session '$title' restored - $messageCount messages loaded"
+
+  // Additional atomic methods for Command.Quit
+
+  /**
+   * Formats goodbye message for saved session
+   */
+  private def formatSavedGoodbyeMessage(title: String): String =
+    s"Session saved as '$title'. Goodbye!"
+
+  /**
+   * Formats simple goodbye message
+   */
+  private def formatSimpleGoodbyeMessage(): String =
+    "Goodbye!"
+
+  /**
+   * Handles new session command by composing atomic operations
+   */
+  private def handleNewSessionCommand(state: SessionState): Either[AssistantError, (SessionState, String)] =
+    if (hasContentToSave(state)) {
+      for {
+        title <- getSessionNameWithDefault()
+        _     <- saveCurrentSession(state, title)
+        newState = createNewSessionState(state)
+        message  = formatSavedSessionMessage(title)
+      } yield (newState, message)
+    } else {
+      // Just start fresh session
+      val newState = createNewSessionState(state)
+      val message  = formatFreshSessionMessage()
+      Right((newState, message))
+    }
+
+  /**
+   * Handles load session command by composing atomic operations
+   */
+  private def handleLoadSessionCommand(
+    title: String,
+    state: SessionState
+  ): Either[AssistantError, (SessionState, String)] =
+    for {
+      // Auto-save current session if it has content (reusing existing logic)
+      _ <-
+        if (hasContentToSave(state)) {
+          saveCurrentSession(state, "Auto-saved Session")
+        } else {
+          Right(())
         }
+      // Load the requested session
+      loadedState <- loadSession(title)
+      messageCount = countMessagesInSession(loadedState)
+      message      = formatLoadSuccessMessage(title, messageCount)
+    } yield (loadedState, message)
+
+  /**
+   * Handles quit command by composing atomic operations (reusing existing methods)
+   */
+  private def handleQuitCommand(state: SessionState): Either[AssistantError, (SessionState, String)] =
+    if (hasContentToSave(state)) {
+      // Reuse existing session saving logic
+      for {
+        title <- getSessionNameWithDefault()
+        _     <- saveCurrentSession(state, title)
+        message = formatSavedGoodbyeMessage(title)
+      } yield (state, message)
+    } else {
+      // Simple goodbye
+      val message = formatSimpleGoodbyeMessage()
+      Right((state, message))
     }
 
   /**
