@@ -4,6 +4,7 @@ import org.llm4s.agent.AgentState
 import org.llm4s.types.{ SessionId, DirectoryPath, FilePath }
 import java.time.LocalDateTime
 import java.util.UUID
+import upickle.default.{ ReadWriter => RW, macroRW, ReadWriter, readwriter }
 
 /**
  * Represents the state of an interactive assistant session
@@ -25,6 +26,15 @@ case class SessionState(
     )
 }
 
+object SessionState {
+  // Custom ReadWriter for LocalDateTime
+  implicit val localDateTimeRW: ReadWriter[LocalDateTime] =
+    readwriter[String].bimap[LocalDateTime](_.toString, LocalDateTime.parse(_))
+
+  // We can't automatically serialize SessionState because it contains AgentState with ToolRegistry
+  // Serialization is handled manually in SessionManager
+}
+
 /**
  * Information about a saved session
  */
@@ -37,6 +47,11 @@ case class SessionInfo(
   fileSize: Long
 )
 
+object SessionInfo {
+  import SessionState.localDateTimeRW // Import the LocalDateTime ReadWriter
+  implicit val rw: RW[SessionInfo] = macroRW
+}
+
 /**
  * Summary of a session for listing purposes
  */
@@ -46,3 +61,8 @@ case class SessionSummary(
   filename: String,
   created: LocalDateTime
 )
+
+object SessionSummary {
+  import SessionState.localDateTimeRW // Import the LocalDateTime ReadWriter
+  implicit val rw: RW[SessionSummary] = macroRW
+}

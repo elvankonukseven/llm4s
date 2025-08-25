@@ -5,7 +5,7 @@ import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.model._
 import org.llm4s.error.{ AssistantError, LLMError }
 import org.llm4s.toolapi.ToolRegistry
-import org.llm4s.types.{ SessionId, DirectoryPath, FilePath }
+import org.llm4s.types.{ SessionId, DirectoryPath }
 import cats.implicits._
 
 import java.util.UUID
@@ -296,19 +296,21 @@ class AssistantAgent(
    * Adds user message to the conversation - initializes if first message
    */
   private def addUserMessage(query: String, state: SessionState): Either[AssistantError, SessionState] =
-    state.agentState match {
-      case None =>
-        // First message - initialize the agent
-        val initialState = agent.initialize(query, tools)
-        Right(state.withAgentState(initialState))
-
-      case Some(agentState) =>
-        // Add to existing conversation
-        val updatedAgentState = agentState
-          .addMessage(UserMessage(query))
-          .withStatus(AgentStatus.InProgress)
-        Right(state.withAgentState(updatedAgentState))
-    }
+    Right(
+      state.agentState
+        .map { agentState =>
+          // Some case - add to existing conversation
+          val updatedAgentState = agentState
+            .addMessage(UserMessage(query))
+            .withStatus(AgentStatus.InProgress)
+          state.withAgentState(updatedAgentState)
+        }
+        .getOrElse {
+          // None case - initialize agent
+          val initialState = agent.initialize(query, tools)
+          state.withAgentState(initialState)
+        }
+    )
 
   /**
    * Runs the agent until completion or failure

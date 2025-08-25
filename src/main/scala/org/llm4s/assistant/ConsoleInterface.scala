@@ -108,10 +108,7 @@ ${config.colorScheme(MessageType.Success)("Just type your message to start chatt
       Option(StdIn.readLine())
     }.toEither
       .leftMap(ex => AssistantError.IOError(s"Failed to read input: ${ex.getMessage}", "read", Some(ex)))
-      .flatMap {
-        case Some(input) => Right(input)
-        case None        => Left(AssistantError.EOFError("EOF reached", "read"))
-      }
+      .flatMap(_.toRight(AssistantError.EOFError("EOF reached", "read")))
 
   /**
    * Displays a message to the user

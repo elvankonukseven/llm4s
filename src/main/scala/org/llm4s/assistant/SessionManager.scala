@@ -12,6 +12,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import scala.util.Try
 import org.slf4j.LoggerFactory
+import upickle.default._
 
 /**
  * Manages session persistence using functional programming principles
@@ -20,53 +21,28 @@ class SessionManager(sessionDir: DirectoryPath, agent: Agent) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   /**
-   * Converts SessionState to JSON format for persistence
+   * Converts SessionState to JSON format for persistence (using upickle automatic derivation)
+   * Note: We handle ToolRegistry separately since it contains function references
    */
-  private def sessionStateToJson(state: SessionState): ujson.Value =
-    ujson.Obj(
-      "sessionId"    -> state.sessionId.value,
-      "sessionDir"   -> state.sessionDir.value,
-      "created"      -> state.created.toString,
-      "conversation" -> state.agentState.map(as => conversationToJson(as.conversation)).getOrElse(ujson.Null),
-      "userQuery"    -> state.agentState.map(as => ujson.Str(as.userQuery)).getOrElse(ujson.Str("")),
-      "status"       -> state.agentState.map(as => ujson.Str(as.status.toString)).getOrElse(ujson.Str("InProgress")),
-      "logs"         -> state.agentState.map(as => ujson.Arr.from(as.logs.map(ujson.Str(_)))).getOrElse(ujson.Arr())
-    )
-
-  /**
-   * Converts Conversation to JSON array
-   */
-  private def conversationToJson(conv: Conversation): ujson.Value =
-    ujson.Arr.from(conv.messages.map(messageToJson))
-
-  /**
-   * Converts individual Message to JSON object
-   */
-  private def messageToJson(msg: Message): ujson.Value = msg match {
-    case UserMessage(content) =>
-      ujson.Obj("type" -> "user", "content" -> ujson.Str(Option(content).getOrElse("")))
-    case SystemMessage(content) =>
-      ujson.Obj("type" -> "system", "content" -> ujson.Str(Option(content).getOrElse("")))
-    case ToolMessage(id, content) =>
-      ujson.Obj(
-        "type"       -> "tool",
-        "toolCallId" -> ujson.Str(Option(id).getOrElse("")),
-        "content"    -> ujson.Str(Option(content).getOrElse(""))
-      )
-    case AssistantMessage(content, toolCalls) =>
-      ujson.Obj(
-        "type"    -> "assistant",
-        "content" -> ujson.Str(content.getOrElse("")),
-        "toolCalls" -> ujson.Arr.from(
-          toolCalls.map(tc =>
-            ujson.Obj(
-              "id"        -> ujson.Str(Option(tc.id).getOrElse("")),
-              "name"      -> ujson.Str(Option(tc.name).getOrElse("")),
-              "arguments" -> Option(tc.arguments).getOrElse(ujson.Obj())
-            )
+  private def sessionStateToJson(state: SessionState): String = {
+    // Convert to JSON-serializable format, handling ToolRegistry specially
+    val jsonObj = ujson.Obj(
+      "sessionId"  -> write(state.sessionId),
+      "sessionDir" -> write(state.sessionDir),
+      "created"    -> state.created.toString,
+      "agentState" -> (state.agentState match {
+        case None => ujson.Null
+        case Some(agentState) =>
+          ujson.Obj(
+            "conversation" -> write(agentState.conversation),
+            "userQuery"    -> agentState.userQuery,
+            "status"       -> write(agentState.status),
+            "logs"         -> ujson.Arr.from(agentState.logs.map(ujson.Str(_))),
+            "toolNames"    -> ujson.Arr.from(agentState.tools.tools.map(t => ujson.Str(t.name)))
           )
-        )
-      )
+      })
+    )
+    ujson.write(jsonObj)
   }
 
   /**
@@ -114,94 +90,26 @@ class SessionManager(sessionDir: DirectoryPath, agent: Agent) {
 
   /**
    * Converts JSON back to SessionState for loading
+   * Note: We reconstruct ToolRegistry from the provided tools parameter
    */
   private def jsonToSessionState(json: ujson.Value, tools: ToolRegistry): SessionState = {
     val obj        = json.obj
-    val sessionId  = SessionId(obj("sessionId").str)
-    val sessionDir = DirectoryPath(obj("sessionDir").str)
+    val sessionId  = read[SessionId](obj("sessionId"))
+    val sessionDir = read[DirectoryPath](obj("sessionDir"))
     val created    = LocalDateTime.parse(obj("created").str)
 
-    val agentState =
-      if (obj("conversation") == ujson.Null) None
-      else {
-        val conversation = jsonToConversation(obj("conversation"))
-        val userQuery    = obj("userQuery").str
-        val status = obj("status").str match {
-          case "InProgress"      => AgentStatus.InProgress
-          case "WaitingForTools" => AgentStatus.WaitingForTools
-          case "Complete"        => AgentStatus.Complete
-          case failureStr if failureStr.startsWith("Failed(") =>
-            val errorMsg = failureStr.stripPrefix("Failed(").stripSuffix(")")
-            AgentStatus.Failed(errorMsg)
-          case other => AgentStatus.Failed(s"Unknown status: $other")
-        }
-        val logs = obj("logs").arr.map(_.str).toSeq
+    val agentState = obj("agentState") match {
+      case ujson.Null => None
+      case agentObj =>
+        val agentObjMap  = agentObj.obj
+        val conversation = read[Conversation](agentObjMap("conversation"))
+        val userQuery    = agentObjMap("userQuery").str
+        val status       = read[AgentStatus](agentObjMap("status"))
+        val logs         = agentObjMap("logs").arr.map(_.str).toSeq
         Some(AgentState(conversation, tools, userQuery, status, logs))
-      }
+    }
 
     SessionState(agentState, sessionId, sessionDir, created)
-  }
-
-  /**
-   * Converts JSON array back to Conversation
-   */
-  private def jsonToConversation(json: ujson.Value): Conversation = {
-    val messages = json.arr.map(jsonToMessage).toSeq
-    Conversation(messages)
-  }
-
-  /**
-   * Converts JSON object back to Message
-   */
-  private def jsonToMessage(json: ujson.Value): Message = {
-    val obj = json.obj
-    obj("type").str match {
-      case "user" =>
-        UserMessage(obj("content") match {
-          case ujson.Null => ""
-          case str        => str.str
-        })
-      case "system" =>
-        SystemMessage(obj("content") match {
-          case ujson.Null => ""
-          case str        => str.str
-        })
-      case "tool" =>
-        ToolMessage(
-          obj("toolCallId") match {
-            case ujson.Null => ""
-            case str        => str.str
-          },
-          obj("content") match {
-            case ujson.Null => ""
-            case str        => str.str
-          }
-        )
-      case "assistant" =>
-        val content = obj("content") match {
-          case ujson.Null             => None
-          case str if str.str.isEmpty => None
-          case str                    => Some(str.str)
-        }
-        val toolCalls = obj("toolCalls").arr.map { tc =>
-          val tcObj = tc.obj
-          ToolCall(
-            tcObj("id") match {
-              case ujson.Null => ""
-              case str        => str.str
-            },
-            tcObj("name") match {
-              case ujson.Null => ""
-              case str        => str.str
-            },
-            tcObj("arguments") match {
-              case ujson.Null => ujson.Obj()
-              case args       => args
-            }
-          )
-        }.toSeq
-        AssistantMessage(content, toolCalls)
-    }
   }
 
   /**

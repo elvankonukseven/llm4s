@@ -1,5 +1,7 @@
 package org.llm4s.llmconnect.model
 
+import upickle.default.{ ReadWriter => RW, macroRW }
+
 /**
  * Represents the message stream in a conversation.
  *  Typically this will be a sequence of system prompt, then a series of user message and assistant responses.
@@ -17,4 +19,8 @@ case class Conversation(messages: Seq[Message]) {
   // Add multiple messages and return a new Conversation
   def addMessages(newMessages: Seq[Message]): Conversation =
     Conversation(messages ++ newMessages)
+}
+
+object Conversation {
+  implicit val rw: RW[Conversation] = macroRW
 }
