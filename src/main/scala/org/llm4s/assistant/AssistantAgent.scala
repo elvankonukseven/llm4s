@@ -3,13 +3,42 @@ package org.llm4s.assistant
 import org.llm4s.agent.{ Agent, AgentState, AgentStatus }
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.model._
-import org.llm4s.error.{ AssistantError, ErrorBridge, LLMError }
+import org.llm4s.error.{ AssistantError, LLMError }
 import org.llm4s.toolapi.ToolRegistry
 import org.llm4s.types.{ SessionId, DirectoryPath, FilePath }
 import cats.implicits._
 
 import java.util.UUID
 import org.slf4j.LoggerFactory
+
+sealed trait Command
+object Command {
+  case object Help                       extends Command
+  case object New                        extends Command
+  case class Save(title: Option[String]) extends Command
+  case class Load(title: String)         extends Command
+  case object Sessions                   extends Command
+  case object Quit                       extends Command
+
+  def parse(input: String): Either[AssistantError, Command] =
+    input.toLowerCase.split("\\s+").toList match {
+      case "/help" :: _ => Right(Help)
+      case "/new" :: _  => Right(New)
+      case "/save" :: titleParts =>
+        val cleanTitle = titleParts.mkString(" ").trim
+        Right(Save(if (cleanTitle.nonEmpty) Some(cleanTitle) else None))
+      case "/load" :: titleParts =>
+        val cleanTitle = titleParts.mkString(" ").trim.stripPrefix("\"").stripSuffix("\"")
+        if (cleanTitle.nonEmpty) {
+          Right(Load(cleanTitle))
+        } else {
+          Left(AssistantError.emptyCommandTitle("/load"))
+        }
+      case "/sessions" :: _ => Right(Sessions)
+      case "/quit" :: _     => Right(Quit)
+      case _                => Left(AssistantError.unknownCommand(input))
+    }
+}
 
 /**
  * Interactive assistant agent that wraps the existing Agent functionality
@@ -105,11 +134,23 @@ class AssistantAgent(
    * Handles slash commands
    */
   private def handleCommand(command: String, state: SessionState): Either[AssistantError, (SessionState, String)] =
-    command.toLowerCase.split("\\s+").toList match {
-      case "/help" :: _ =>
+    Command.parse(command) match {
+      case Right(cmd)       => handleValidCommand(cmd, state)
+      case Left(parseError) => Right((state, parseError.message))
+    }
+
+  /**
+   * Handles valid parsed commands - pure business logic with no string munging
+   */
+  private def handleValidCommand(
+    command: Command,
+    state: SessionState
+  ): Either[AssistantError, (SessionState, String)] =
+    command match {
+      case Command.Help =>
         Right((state, console.showHelp()))
 
-      case "/new" :: _ =>
+      case Command.New =>
         state.agentState match {
           case Some(agentState) if agentState.conversation.messages.nonEmpty =>
             // Prompt user for session name
@@ -127,32 +168,27 @@ class AssistantAgent(
             Right((newState, "Started new session."))
         }
 
-      case "/save" :: title =>
-        val sessionTitle = if (title.nonEmpty) title.mkString(" ") else "Saved Session"
+      case Command.Save(titleOpt) =>
+        val sessionTitle = titleOpt.getOrElse("Saved Session")
         sessionManager.saveSession(state, Some(sessionTitle)).map(_ => (state, s"Session saved as: $sessionTitle"))
 
-      case "/load" :: sessionTitle =>
-        val title = sessionTitle.mkString(" ").trim.stripPrefix("\"").stripSuffix("\"")
-        if (title.nonEmpty) {
-          for {
-            // Auto-save current session if it has content before loading new one
-            _ <- state.agentState match {
-              case Some(agentState) if agentState.conversation.messages.nonEmpty =>
-                sessionManager.saveSession(state, Some("Auto-saved Session"))
-              case _ =>
-                Right(SessionInfo(SessionId(""), "No session to save", FilePath(""), state.created, 0, 0L))
-            }
-            loadedState <- sessionManager.loadSession(title, tools)
-            messageCount = loadedState.agentState.map(_.conversation.messages.length).getOrElse(0)
-          } yield (loadedState, s"✅ Session '$title' restored - $messageCount messages loaded")
-        } else {
-          Right((state, "Please specify a session title: /load \"Session Name\""))
-        }
+      case Command.Load(title) =>
+        for {
+          // Auto-save current session if it has content before loading new one
+          _ <- state.agentState match {
+            case Some(agentState) if agentState.conversation.messages.nonEmpty =>
+              sessionManager.saveSession(state, Some("Auto-saved Session"))
+            case _ =>
+              Right(SessionInfo(SessionId(""), "No session to save", FilePath(""), state.created, 0, 0L))
+          }
+          loadedState <- sessionManager.loadSession(title, tools)
+          messageCount = loadedState.agentState.map(_.conversation.messages.length).getOrElse(0)
+        } yield (loadedState, s"✅ Session '$title' restored - $messageCount messages loaded")
 
-      case "/sessions" :: _ =>
+      case Command.Sessions =>
         sessionManager.listRecentSessions().map(sessions => (state, console.formatSessionList(sessions)))
 
-      case "/quit" :: _ =>
+      case Command.Quit =>
         state.agentState match {
           case Some(agentState) if agentState.conversation.messages.nonEmpty =>
             // Prompt user for session name before quitting
@@ -167,9 +203,6 @@ class AssistantAgent(
             // No session to save
             Right((state, "Goodbye!"))
         }
-
-      case _ =>
-        Right((state, s"Unknown command: $command. Type /help for available commands."))
     }
 
   /**
@@ -197,17 +230,18 @@ class AssistantAgent(
     state.agentState match {
       case None => Left(LLMError.ConfigurationError("No agent state to run"))
       case Some(agentState) =>
-        def runSteps(currentState: AgentState): Either[LLMError, AgentState] =
+        def runSteps(currentState: AgentState): Either[org.llm4s.error.LLMError, AgentState] =
           currentState.status match {
             case AgentStatus.InProgress | AgentStatus.WaitingForTools =>
               agent.runStep(currentState) match {
                 case Right(newState) => runSteps(newState)
-                case Left(error)     => Left(ErrorBridge.toCore(error))
+                case Left(error)     => Left(error)
               }
             case _ => Right(currentState)
           }
 
-        runSteps(agentState).map(finalAgentState => state.withAgentState(finalAgentState))
+        runSteps(agentState)
+          .map(finalAgentState => state.withAgentState(finalAgentState))
     }
 
   /**

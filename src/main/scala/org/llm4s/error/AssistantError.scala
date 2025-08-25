@@ -98,6 +98,20 @@ object AssistantError {
     ) ++ cause.map(ex => "cause" -> ex.getClass.getSimpleName)
   }
 
+  // Command parsing errors
+  final case class CommandParseError(
+    override val message: String,
+    command: String,
+    parseOperation: String, // "validate-title", "parse-command", etc.
+    cause: Option[Throwable] = None
+  ) extends AssistantError {
+    override val context: Map[String, String] = Map(
+      "component" -> "command-parser",
+      "command"   -> command,
+      "operation" -> parseOperation
+    ) ++ cause.map(ex => "cause" -> ex.getClass.getSimpleName)
+  }
+
   // Smart constructors with rich context
   def sessionNotFound(sessionId: SessionId): AssistantError =
     SessionError(s"Session not found: $sessionId", sessionId, "load")
@@ -123,6 +137,13 @@ object AssistantError {
 
   def consoleOutputFailed(displayType: String, cause: Throwable): AssistantError =
     DisplayError(s"Failed to display $displayType: ${cause.getMessage}", displayType, Some(cause))
+
+  // Command parsing constructors
+  def emptyCommandTitle(command: String): AssistantError =
+    CommandParseError(s"Please specify a session title: $command \"Session Name\"", command, "validate-title")
+
+  def unknownCommand(command: String): AssistantError =
+    CommandParseError(s"Unknown command: $command. Type /help for available commands.", command, "parse-command")
 
   // No need for LLMError wrapper - just use the core LLMError directly in Either types
   // The calling code can use Either[LLMError, T] when dealing with core LLM operations
