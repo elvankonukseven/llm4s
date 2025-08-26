@@ -13,6 +13,7 @@ import java.time.format.DateTimeFormatter
 import scala.util.Try
 import org.slf4j.LoggerFactory
 import upickle.default._
+import org.apache.commons.io.FileUtils
 
 /**
  * Manages session persistence using functional programming principles
@@ -179,7 +180,7 @@ class SessionManager(sessionDir: DirectoryPath, agent: Agent) {
     )
 
   /**
-   * Finds a unique filename (by appending numbers if necessary)
+   * Finds a unique filename using system temp directory for uniqueness guarantee
    */
   private def findUniqueFilename(baseFilename: String): String = {
     def checkExists(filename: String): Boolean =
@@ -189,11 +190,10 @@ class SessionManager(sessionDir: DirectoryPath, agent: Agent) {
     if (!checkExists(baseFilename)) {
       baseFilename
     } else {
-      LazyList
-        .from(2)
-        .map(i => s"$baseFilename ($i)")
-        .find(!checkExists(_))
-        .getOrElse(s"$baseFilename (${System.currentTimeMillis()})")
+      // Use system temp directory to generate guaranteed unique filename
+      val tempFile     = FileUtils.getFile(FileUtils.getTempDirectory(), s"session_${System.nanoTime()}")
+      val uniqueSuffix = tempFile.getName.substring(8) // Remove "session_" prefix
+      s"$baseFilename-$uniqueSuffix"
     }
   }
 
