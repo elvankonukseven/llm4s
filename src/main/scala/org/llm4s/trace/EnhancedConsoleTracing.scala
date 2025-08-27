@@ -1,6 +1,6 @@
 package org.llm4s.trace
 
-import org.llm4s.error.LLMError
+import org.llm4s.error.UnknownError
 import org.llm4s.agent.AgentState
 import org.llm4s.llmconnect.model.{ TokenUsage, Completion }
 import org.llm4s.types.Result
@@ -107,7 +107,7 @@ class EnhancedConsoleTracing extends EnhancedTracing {
           println(s"${YELLOW}Data: ${e.data}$RESET")
           println()
       }
-    }.toEither.left.map(error => LLMError.UnknownError(error.getMessage, Some(error)))
+    }.toEither.left.map(error => UnknownError(error.getMessage, error))
 
   def traceAgentState(state: AgentState): Result[Unit] = {
     val event = TraceEvent.AgentStateUpdated(

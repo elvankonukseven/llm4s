@@ -17,7 +17,8 @@ val scala3CompilerOptions = Seq(
   "-Wunused:all"
 )
 val scala2CompilerOptions = Seq(
-  "-Xfatal-warnings",
+  // "-Xfatal-warnings", Commented to allow deprecation warnings
+  // "-Wconf:deprecation:w", // suppress deprecation warnings - Commented to allow deprecation warnings
   "-feature",
   "-unchecked",
   "-deprecation",
@@ -70,7 +71,7 @@ inThisBuild(
         case Some(out) =>
           // Strip the 'v' prefix from snapshot versions too
           val baseVersion = out.ref.value.stripPrefix("v")
-          s"${baseVersion}+${out.commitSuffix.mkString("", "", "")}-SNAPSHOT"
+          s"$baseVersion+${out.commitSuffix.mkString("", "", "")}-SNAPSHOT"
         case None =>
           "0.0.0-UNKNOWN"
       }

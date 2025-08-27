@@ -27,9 +27,10 @@ class Agent(client: LLMClient) {
     val baseSystemPrompt = """You are a helpful assistant with access to tools. 
         |Follow these steps:
         |1. Analyze the user's question and determine which tools you need to use
-        |2. Use the necessary tools to find the information needed
-        |3. When you have enough information, provide a helpful final answer
-        |4. Think step by step and be thorough""".stripMargin
+        |2. Use tools ONE AT A TIME - make one tool call, wait for the result, then decide if you need more tools
+        |3. Use the results from previous tool calls in subsequent tool calls when needed
+        |4. When you have enough information, provide a helpful final answer
+        |5. Think step by step and be thorough""".stripMargin
 
     val fullSystemPrompt = systemPromptAddition match {
       case Some(addition) => s"$baseSystemPrompt\n\n$addition"

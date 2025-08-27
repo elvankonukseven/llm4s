@@ -2,7 +2,7 @@ package org.llm4s.trace
 
 import org.llm4s.agent.AgentState
 import org.llm4s.llmconnect.model.{ TokenUsage, Completion }
-import org.llm4s.error.LLMError
+import org.llm4s.error.UnknownError
 import org.llm4s.config.EnvLoader
 import org.llm4s.types.Result
 import org.slf4j.LoggerFactory
@@ -64,13 +64,13 @@ class EnhancedLangfuseTracing(
         logger.error(s"[Langfuse] Batch export failed: ${response.statusCode}")
         logger.error(s"[Langfuse] Response body: ${response.text()}")
         val runtimeException = new RuntimeException(s"Langfuse export failed: ${response.statusCode}")
-        Left(LLMError.UnknownError(runtimeException.getMessage, Some(runtimeException)))
+        Left(UnknownError(runtimeException.getMessage, runtimeException))
       }
     } catch {
       case e: Exception =>
         logger.error(s"[Langfuse] Batch export failed with exception: ${e.getMessage}", e)
         logger.error(s"[Langfuse] Request URL: $langfuseUrl")
-        Left(LLMError.UnknownError(e.getMessage, Some(e)))
+        Left(UnknownError(e.getMessage, e))
     }
   }
 

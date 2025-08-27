@@ -3,7 +3,7 @@ package org.llm4s.assistant
 import org.llm4s.agent.{ Agent, AgentState, AgentStatus }
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.model._
-import org.llm4s.error.{ AssistantError, LLMError }
+import org.llm4s.error.{ AssistantError, LLMError, ConfigurationError }
 import org.llm4s.toolapi.ToolRegistry
 import org.llm4s.types.{ SessionId, DirectoryPath }
 import cats.implicits._
@@ -317,7 +317,7 @@ class AssistantAgent(
    */
   private def runAgentToCompletion(state: SessionState): Either[LLMError, SessionState] =
     state.agentState match {
-      case None => Left(LLMError.ConfigurationError("No agent state to run"))
+      case None => Left(ConfigurationError("No agent state to run"))
       case Some(agentState) =>
         def runSteps(currentState: AgentState): Either[org.llm4s.error.LLMError, AgentState] =
           currentState.status match {

@@ -53,7 +53,6 @@ object WeatherTool {
       )
     }
 
-  // Build the weather tool
   val tool = ToolBuilder[Map[String, Any], WeatherResult](
     "get_weather",
     "Retrieves current weather for the given location.",

@@ -115,14 +115,15 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
       initializeTransport().flatMap { transportImpl =>
         // Check if we already did initialization during transport testing
         if (isTransportInitialized) {
-          // Send initialized notification to complete handshake (notifications have no ID)
-          val initializedNotification = JsonRpcNotification(
+          // Just send the initialized notification to complete handshake
+          val initializedNotification = JsonRpcRequest(
             jsonrpc = "2.0",
-            method = "notifications/initialized",
+            id = generateId(),
+            method = "initialized",
             params = Some(ujson.Obj())
           )
 
-          transportImpl.sendNotification(initializedNotification) match {
+          transportImpl.sendRequest(initializedNotification) match {
             case Right(_) =>
               initialized = true
               logger.info(s"Completed MCP client initialization for ${config.name} with existing connection")
@@ -147,14 +148,15 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
 
                     // Validate protocol version compatibility
                     if (serverProtocolVersion.startsWith("2024-") || serverProtocolVersion.startsWith("2025-")) {
-                      // Send initialized notification to complete the handshake (notifications have no ID)
-                      val initializedNotification = JsonRpcNotification(
+                      // Send initialized notification to complete the handshake
+                      val initializedNotification = JsonRpcRequest(
                         jsonrpc = "2.0",
-                        method = "notifications/initialized",
+                        id = generateId(),
+                        method = "initialized",
                         params = Some(ujson.Obj())
                       )
 
-                      transportImpl.sendNotification(initializedNotification) match {
+                      transportImpl.sendRequest(initializedNotification) match {
                         case Right(_) =>
                           initialized = true
                           logger.info(
@@ -200,7 +202,7 @@ class MCPClientImpl(config: MCPServerConfig) extends MCPClient {
               jsonrpc = "2.0",
               id = generateId(),
               method = "tools/list", // method value for getting available tools
-              params = None          // Optional params omitted per JSON-RPC 2.0 spec
+              params = None
             )
 
             transportImpl.sendRequest(listRequest) match {
