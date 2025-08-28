@@ -13,12 +13,12 @@ import org.slf4j.LoggerFactory
 
 sealed trait Command
 object Command {
-  case object Help                       extends Command
-  case object New                        extends Command
-  case class Save(title: Option[String]) extends Command
-  case class Load(title: String)         extends Command
-  case object Sessions                   extends Command
-  case object Quit                       extends Command
+  case object Help               extends Command
+  case object New                extends Command
+  case class Save(title: String) extends Command
+  case class Load(title: String) extends Command
+  case object Sessions           extends Command
+  case object Quit               extends Command
 
   def parse(input: String): Either[AssistantError, Command] =
     input.toLowerCase.split("\\s+").toList match {
@@ -26,7 +26,8 @@ object Command {
       case "/new" :: _  => Right(New)
       case "/save" :: titleParts =>
         val cleanTitle = titleParts.mkString(" ").trim
-        Right(Save(if (cleanTitle.nonEmpty) Some(cleanTitle) else None))
+        val finalTitle = if (cleanTitle.nonEmpty) cleanTitle else "Saved Session"
+        Right(Save(finalTitle))
       case "/load" :: titleParts =>
         val cleanTitle = titleParts.mkString(" ").trim.stripPrefix("\"").stripSuffix("\"")
         if (cleanTitle.nonEmpty) {
@@ -153,9 +154,8 @@ class AssistantAgent(
       case Command.New =>
         handleNewSessionCommand(state)
 
-      case Command.Save(titleOpt) =>
-        val sessionTitle = titleOpt.getOrElse("Saved Session")
-        sessionManager.saveSession(state, Some(sessionTitle)).map(_ => (state, s"Session saved as: $sessionTitle"))
+      case Command.Save(title) =>
+        sessionManager.saveSession(state, Some(title)).map(_ => (state, s"Session saved as: $title"))
 
       case Command.Load(title) =>
         handleLoadSessionCommand(title, state)
