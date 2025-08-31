@@ -19,6 +19,21 @@ case class JsonRpcRequest(
 )
 
 /**
+ * JSON-RPC 2.0 notification structure for MCP protocol communication.
+ * Notifications are requests without an ID - the client doesn't expect a response.
+ * Used for fire-and-forget messages like the "initialized" notification.
+ *
+ * @param jsonrpc Protocol version, always "2.0"
+ * @param method The method name to invoke on the server
+ * @param params Optional parameters for the method
+ */
+case class JsonRpcNotification(
+  jsonrpc: String, // No default value to force explicit setting
+  method: String,
+  params: Option[ujson.Value] = None
+)
+
+/**
  * JSON-RPC 2.0 response structure returned by MCP servers.
  * Contains either a result or error, never both.
  *
@@ -250,6 +265,10 @@ object MCPErrorCodes {
 // Serialization support for JSON marshalling/unmarshalling
 object JsonRpcRequest {
   implicit val rw: ReadWriter[JsonRpcRequest] = macroRW
+}
+
+object JsonRpcNotification {
+  implicit val rw: ReadWriter[JsonRpcNotification] = macroRW
 }
 
 object JsonRpcResponse {

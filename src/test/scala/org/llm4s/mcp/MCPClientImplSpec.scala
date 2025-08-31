@@ -54,11 +54,11 @@ class MCPClientImplSpec extends AnyFlatSpec with Matchers with MockFactory with 
       .expects(where((req: JsonRpcRequest) => req.method == "initialize"))
       .returning(Right(initResponse))
 
-    (mockTransport.sendRequest _)
-      .expects(where((req: JsonRpcRequest) => req.method == "initialized"))
-      .returning(Right(JsonRpcResponse("2.0", "3", None)))
+    (mockTransport.sendNotification _)
+      .expects(where((notif: JsonRpcNotification) => notif.method == "notifications/initialized"))
+      .returning(Right(()))
 
-    val request = JsonRpcRequest("2.0", "3", "tools/list", None)
+    val request = JsonRpcRequest("2.0", "2", "tools/list", None)
     (mockTransport.sendRequest _)
       .expects(request)
       .returning(Right(toolsResponse))
