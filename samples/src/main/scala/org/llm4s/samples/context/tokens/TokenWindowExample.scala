@@ -1,4 +1,4 @@
-package org.llm4s.samples.context
+package org.llm4s.samples.context.tokens
 
 import org.llm4s.config.ConfigReader
 import org.llm4s.config.ConfigReader.LLMConfig
@@ -35,7 +35,7 @@ object TokenWindowExample {
   private val logger = LoggerFactory.getLogger(getClass)
 
   def main(args: Array[String]): Unit = {
-    println("=== Multi-Provider Token Window Management Demo ===\n")
+    logger.info("Starting Multi-Provider Token Window Management Demo")
     
     val result = for {
       cfg  <- getConfiguration()
@@ -46,31 +46,42 @@ object TokenWindowExample {
     } yield demoResults
 
     result.fold(
-      e => println(s"❌ Demo failed: $e"),
-      r => displayResults(r)
+      e => {
+        logger.error(s"Demo failed: $e")
+        println(s"❌ Demo failed: $e") // Keep this one for user feedback
+      },
+      r => {
+        logger.info("Demo completed successfully")
+        displayResults(r)
+      }
     )
   }
 
   private def getConfiguration(): Result[(String, ConfigReader)] = {
     val config = LLMConfig()
     val modelName = config.getOrElse("LLM_MODEL", "openai/gpt-4o")
-    println(s"🔧 Using model: $modelName")
+    
+    logger.info(s"Configured model: $modelName")
     Right((modelName, config))
   }
 
   private def createClient(config: ConfigReader): Result[org.llm4s.llmconnect.LLMClient] = {
     val client = LLM.client(config)
-    println(s"✅ LLM Client created")
+    logger.info("LLM Client created successfully")
     Right(client)
   }
 
   private def createTokenCounter(modelName: String): Result[ConversationTokenCounter] = 
     ConversationTokenCounter.forModel(modelName).map { counter =>
       val accuracyInfo = TokenizerMapping.getAccuracyInfo(modelName)
-      val accuracyEmoji = if (accuracyInfo.isExact) "🎯" else "⚠️"
       
-      println(s"✅ Token counter created for $modelName")
-      println(s"$accuracyEmoji Tokenizer accuracy: ${accuracyInfo.description}")
+      logger.info(s"Created token counter for model: $modelName")
+      if (accuracyInfo.isExact) {
+        logger.info(s"Using exact tokenizer for $modelName")
+      } else {
+        logger.warn(s"Using approximate tokenizer for $modelName: ${accuracyInfo.description}")
+      }
+      
       counter
     }
 
@@ -125,19 +136,13 @@ object TokenWindowExample {
   }
 
   private def displayTokenAnalysis(analysis: TokenAnalysis): Unit = {
-    println("\n=== Token Counting Analysis ===")
-    println(s"📊 Total tokens in conversation: ${analysis.totalTokens}")
-    println(s"📝 Number of messages: ${analysis.messageCount}")
-    println(s"📈 Average tokens per message: ${analysis.averageTokensPerMessage}")
-    println()
-    println(analysis.breakdown.prettyPrint())
+    logger.info(s"Token analysis: ${analysis.totalTokens} total tokens across ${analysis.messageCount} messages")
+    logger.debug(s"Average tokens per message: ${analysis.averageTokensPerMessage}")
+    logger.debug(s"Token breakdown: ${analysis.breakdown.prettyPrint()}")
   }
 
   private def displayAPIResults(results: APITestResults): Unit = {
-    println("=== Real API Testing ===")
-    println(s"🔍 Our token count prediction: ${results.predictedTokens} tokens")
-    println(s"🤖 Model: ${results.modelName}")
-    println()
+    logger.info(s"API testing with model ${results.modelName}, predicted ${results.predictedTokens} tokens")
 
     results match {
       case APITestResults(_, _, true, Some(completion), None) =>
@@ -145,48 +150,42 @@ object TokenWindowExample {
       case APITestResults(_, _, false, None, Some(error)) =>
         displayErrorResults(error, results.predictedTokens, results.modelName)
       case _ =>
-        println("⚠️ Unexpected API results state")
+        logger.warn("Unexpected API results state")
     }
   }
 
   private def displaySuccessResults(completion: Completion, predictedTokens: Int, modelName: String): Unit = {
-    println("✅ API call successful!")
+    logger.info(s"API call successful for model: $modelName")
     
     completion.usage.foreach { usage =>
-      println(f"📈 API reported usage:")
-      println(f"   - Prompt tokens: ${usage.promptTokens}%,d")
-      println(f"   - Completion tokens: ${usage.completionTokens}%,d") 
-      println(f"   - Total tokens: ${usage.totalTokens}%,d")
+      logger.info(f"API reported usage: ${usage.promptTokens}%,d prompt + ${usage.completionTokens}%,d completion = ${usage.totalTokens}%,d total tokens")
       
       val accuracy = (predictedTokens.toDouble / usage.promptTokens * 100)
-      println(f"🎯 Token prediction accuracy: $accuracy%.1f%%")
+      logger.info(f"Token prediction accuracy: $accuracy%.1f%% (predicted: $predictedTokens, actual: ${usage.promptTokens})")
       
-      val accuracyMessage = accuracy match {
-        case a if a > 95 => "🎉 Excellent accuracy!"
-        case a if a > 85 => "👍 Very good accuracy!"
-        case a if a > 70 => "✅ Acceptable accuracy!"
-        case a if a > 50 => "⚠️  Fair accuracy (expected for Anthropic models)"
-        case _ => "❌ Poor accuracy - may indicate tokenizer mismatch"
+      accuracy match {
+        case a if a > 95 => logger.info("Excellent tokenizer accuracy achieved")
+        case a if a > 85 => logger.info("Very good tokenizer accuracy achieved")
+        case a if a > 70 => logger.info("Acceptable tokenizer accuracy achieved")
+        case a if a > 50 => logger.warn("Fair tokenizer accuracy - expected for approximate tokenizers")
+        case _ => logger.warn("Poor tokenizer accuracy - may indicate tokenizer mismatch")
       }
-      println(accuracyMessage)
       
-      // Explain accuracy expectations for different providers
+      // Log expectations for different providers
       if (modelName.toLowerCase.contains("anthropic") || modelName.toLowerCase.contains("claude")) {
-        println("ℹ️  Note: Anthropic models use proprietary tokenizers, so 70-80% accuracy is expected")
+        logger.info("Note: Anthropic models use proprietary tokenizers, so 70-80% accuracy is expected")
       }
     }
     
-    println(f"\n💬 Response preview: ${completion.message.content.take(100)}...")
+    logger.debug(f"Response preview: ${completion.message.content.take(100)}...")
   }
 
   private def displayErrorResults(error: org.llm4s.error.LLMError, predictedTokens: Int, modelName: String): Unit = {
-    println(s"❌ API call failed: ${error.message}")
+    logger.error(s"API call failed for model $modelName: ${error.message}")
     
     if (error.message.toLowerCase.contains("token") || error.message.toLowerCase.contains("length")) {
-      println(s"🚨 This looks like a token limit error!")
-      println(s"   Our prediction was $predictedTokens tokens")
-      println(s"   Model: $modelName")
-      println("   This validates that our token counting detected the issue!")
+      logger.warn(s"Token limit error detected! Predicted $predictedTokens tokens for model $modelName")
+      logger.info("This validates that our token counting successfully detected the issue")
     }
   }
 
@@ -203,7 +202,9 @@ object TokenWindowExample {
       "that synthesizes all the information we've covered."
     )
     
-    Conversation(systemPrompt +: (conversationPairs :+ finalUserMessage))
+    val conversation = Conversation(systemPrompt +: (conversationPairs :+ finalUserMessage))
+    logger.debug(s"Created test conversation with ${conversation.messages.length} messages")
+    conversation
   }
 
   private def createConversationPair(topic: Int): Seq[Message] = 
