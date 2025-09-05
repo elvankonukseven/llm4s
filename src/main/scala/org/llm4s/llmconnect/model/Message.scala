@@ -331,6 +331,14 @@ final case class ToolMessage(
 ) extends Message {
   val role: MessageRole = MessageRole.Tool
 
+  def findToolCallName(contextMessages: Seq[Message]): String =
+    contextMessages
+      .collect { case am: AssistantMessage => am.toolCalls }
+      .flatten
+      .find(_.id == toolCallId)
+      .map(_.name)
+      .getOrElse("unknown-tool")
+
   override def validate: Result[Message] = {
     val validations = List(
       if (content.trim.isEmpty) Some("Tool message content cannot be empty") else None,

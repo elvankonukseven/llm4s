@@ -7,8 +7,8 @@ object TokenSample {
   def main(args: Array[String]): Unit =
     for (tokenizerId <- List(R50K_BASE, CL100K_BASE, O200K_BASE)) {
       val tokenizer = Tokenizer.lookupStringTokenizer(tokenizerId).get
-      val message = "Hello Scala!"
-      val tokens = tokenizer.encode(message)
+      val message   = "Hello Scala!"
+      val tokens    = tokenizer.encode(message)
       println(s"`$message` / $tokenizerId -> $tokens")
     }
 }

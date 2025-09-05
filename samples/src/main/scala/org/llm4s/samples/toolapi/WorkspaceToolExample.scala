@@ -3,7 +3,7 @@ package org.llm4s.samples.toolapi
 import org.llm4s.llmconnect.config.{ AnthropicConfig, OpenAIConfig }
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.provider.LLMProvider
-import org.llm4s.llmconnect.{ LLM, LLMClient }
+import org.llm4s.llmconnect.{ LLMClient, LLMConnect }
 import org.llm4s.toolapi._
 import org.llm4s.workspace.ContainerisedWorkspace
 import org.slf4j.LoggerFactory
@@ -26,16 +26,17 @@ object WorkspaceToolExample {
 
   // Implicit readers/writers for JSON serialization
   implicit val exploreResultRW: ReadWriter[ExploreResult] = macroRW
-  implicit val readResultRW: ReadWriter[ReadResult] = macroRW
-  implicit val searchResultRW: ReadWriter[SearchResult] = macroRW
+  implicit val readResultRW: ReadWriter[ReadResult]       = macroRW
+  implicit val searchResultRW: ReadWriter[SearchResult]   = macroRW
   implicit val executeResultRW: ReadWriter[ExecuteResult] = macroRW
   implicit val commandResultRW: ReadWriter[CommandResult] = macroRW
 
   def main(args: Array[String]): Unit = {
     // Read LLM model names from environment variables
-    val gpt4oModelName = sys.env.getOrElse("LLM_MODEL_GPT4O", "gpt-4o")
+    val gpt4oModelName  = sys.env.getOrElse("LLM_MODEL_GPT4O", "gpt-4o")
     val sonnetModelName = "claude-3-7-sonnet-latest"
 
+    // TODO read from config
     // Sample workspace directory
     val workspaceDir = System.getProperty("user.home") + "/workspace-demo"
     logger.info(s"Using workspace directory: $workspaceDir")
@@ -43,18 +44,21 @@ object WorkspaceToolExample {
     // Create a workspace
     val workspace = new ContainerisedWorkspace(workspaceDir)
 
-    try {
+    try
       // Start the workspace container
       if (workspace.startContainer()) {
         logger.info("Container started successfully")
 
         // Create test file for demonstration
-        workspace.writeFile("/workspace/test_file.txt", "This is a test file\nIt has multiple lines\nFor testing search functionality")
+        workspace.writeFile(
+          "/workspace/test_file.txt",
+          "This is a test file\nIt has multiple lines\nFor testing search functionality"
+        )
         workspace.writeFile("/workspace/another_file.txt", "This is another test file\nWith different content")
 
         // Create the workspace tools
         val workspaceTools = WorkspaceTools.createDefaultWorkspaceTools(workspace)
-        val toolRegistry = new ToolRegistry(workspaceTools)
+        val toolRegistry   = new ToolRegistry(workspaceTools)
 
         // Create test prompt for the LLM
         val prompt = "You are a helpful assistant that has access to a workspace with files. " +
@@ -64,44 +68,55 @@ object WorkspaceToolExample {
 
         // Test with GPT-4o
         logger.info(s"Testing with OpenAI's $gpt4oModelName...")
+
         val configReader = org.llm4s.config.ConfigReader.LLMConfig()
-        val openaiConfig = OpenAIConfig.from(gpt4oModelName, configReader)
-        
-        val openaiClient = LLM.client(LLMProvider.OpenAI, openaiConfig)
+        val openaiConfig =
+          OpenAIConfig(gpt4oModelName, configReader).fold(e => throw new IllegalArgumentException(e.message), identity)
+
+        val openaiClient = LLMConnect
+          .getClient(LLMProvider.OpenAI, openaiConfig)
+          .fold(e => throw new IllegalArgumentException(e.message), identity)
+
         testLLMWithTools(openaiClient, toolRegistry, prompt)
 
         // Test with Claude
         logger.info(s"Testing with Anthropic's $sonnetModelName...")
-        val anthropicConfig = AnthropicConfig.from(sonnetModelName, configReader)
-        
-        val anthropicClient = LLM.client(LLMProvider.Anthropic, anthropicConfig)
+        val anthropicConfig = AnthropicConfig(sonnetModelName, configReader).fold(
+          e => throw new IllegalArgumentException(e.message),
+          identity
+        )
+
+        val anthropicClient = LLMConnect
+          .getClient(LLMProvider.Anthropic, anthropicConfig)
+          .fold(e => throw new IllegalArgumentException(e.message), identity)
+
         testLLMWithTools(anthropicClient, toolRegistry, prompt)
       } else {
         logger.error("Failed to start the workspace container")
       }
-    } catch {
+    catch {
       case e: Exception =>
         logger.error(s"Error during workspace demo: ${e.getMessage}", e)
-    } finally {
+    } finally
       // Always clean up the container
       if (workspace.stopContainer()) {
         logger.info("Container stopped successfully")
       } else {
         logger.error("Failed to stop the container")
       }
-    }
   }
-
 
   /**
    * Test an LLM with the workspace tools
    */
   private def testLLMWithTools(client: LLMClient, toolRegistry: ToolRegistry, prompt: String): Unit = {
     // Create initial conversation with system and user messages
-    val initialConversation = Conversation(Seq(
-      SystemMessage("You are a helpful assistant with workspace tools. Use them to help the user."),
-      UserMessage(prompt)
-    ))
+    val initialConversation = Conversation(
+      Seq(
+        SystemMessage("You are a helpful assistant with workspace tools. Use them to help the user."),
+        UserMessage(prompt)
+      )
+    )
 
     // Create completion options with tools
     val options = CompletionOptions(
@@ -124,7 +139,7 @@ object WorkspaceToolExample {
     options: CompletionOptions,
     toolRegistry: ToolRegistry,
     depth: Int = 0
-  ): Unit = 
+  ): Unit =
     client.complete(conversation, options) match {
       case Right(completion) =>
         val assistantMessage = completion.message
@@ -134,7 +149,7 @@ object WorkspaceToolExample {
         // Check if there are tool calls
         if (assistantMessage.toolCalls.nonEmpty) {
           logger.info("Processing {} tool calls", assistantMessage.toolCalls.length)
-          
+
           // Process each tool call and create tool messages
           val toolMessages = processToolCalls(assistantMessage.toolCalls, toolRegistry)
 
@@ -153,8 +168,12 @@ object WorkspaceToolExample {
 
           // Print token usage if available
           completion.usage.foreach { usage =>
-            logger.info("Tokens used: {} ({} prompt, {} completion)", 
-              usage.totalTokens, usage.promptTokens, usage.completionTokens)
+            logger.info(
+              "Tokens used: {} ({} prompt, {} completion)",
+              usage.totalTokens,
+              usage.promptTokens,
+              usage.completionTokens
+            )
           }
         }
 
@@ -168,21 +187,21 @@ object WorkspaceToolExample {
   private def processToolCalls(toolCalls: Seq[ToolCall], toolRegistry: ToolRegistry): Seq[ToolMessage] =
     toolCalls.map { toolCall =>
       val startTime = System.currentTimeMillis()
-      
+
       logger.info("Executing tool: {} with arguments: {}", toolCall.name, toolCall.arguments)
 
-      val request = ToolCallRequest(toolCall.name, toolCall.arguments)
+      val request    = ToolCallRequest(toolCall.name, toolCall.arguments)
       val toolResult = toolRegistry.execute(request)
-      
-      val endTime = System.currentTimeMillis()
+
+      val endTime  = System.currentTimeMillis()
       val duration = endTime - startTime
 
       val resultContent = toolResult match {
-        case Right(json) => 
+        case Right(json) =>
           val formatted = json.render(indent = 2)
           logger.info("Tool {} completed successfully in {}ms. Result: {}", toolCall.name, duration, formatted)
           formatted
-        case Left(error) => 
+        case Left(error) =>
           val errorJson = s"""{ "isError": true, "message": "$error" }"""
           logger.warn("Tool {} failed in {}ms with error: {}", toolCall.name, duration, error)
           errorJson

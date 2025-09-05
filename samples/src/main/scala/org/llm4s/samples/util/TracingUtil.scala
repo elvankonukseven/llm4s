@@ -15,29 +15,35 @@ import scala.util.Try
 object TracingUtil {
 
   /** Trace the start of a demo or example */
-  def traceDemoStart(tracing: EnhancedTracing, demoName: String): Unit = {
-    tracing.traceEvent(TraceEvent.CustomEvent("demo_start", ujson.Obj(
-      "demo" -> demoName,
-      "timestamp" -> BenchmarkUtil.currentTimestamp
-    )))
-  }
+  def traceDemoStart(tracing: EnhancedTracing, demoName: String): Unit =
+    tracing.traceEvent(
+      TraceEvent.CustomEvent(
+        "demo_start",
+        ujson.Obj(
+          "demo"      -> demoName,
+          "timestamp" -> BenchmarkUtil.currentTimestamp
+        )
+      )
+    )
 
   /** Trace agent initialization */
-  def traceAgentInitialization(tracing: EnhancedTracing, query: String, tools: Seq[ToolFunction[_, _]]): Unit = {
-    tracing.traceEvent(TraceEvent.AgentInitialized(
-      query = query,
-      tools = tools.map(_.name).toVector
-    ))
-  }
+  def traceAgentInitialization(tracing: EnhancedTracing, query: String, tools: Seq[ToolFunction[_, _]]): Unit =
+    tracing.traceEvent(
+      TraceEvent.AgentInitialized(
+        query = query,
+        tools = tools.map(_.name).toVector
+      )
+    )
 
   /** Trace agent state updates */
-  def traceAgentStateUpdate(tracing: EnhancedTracing, agentState: AgentState): Unit = {
-    tracing.traceEvent(TraceEvent.AgentStateUpdated(
-      status = agentState.status.toString,
-      messageCount = agentState.conversation.messages.length,
-      logCount = agentState.logs.length
-    ))
-  }
+  def traceAgentStateUpdate(tracing: EnhancedTracing, agentState: AgentState): Unit =
+    tracing.traceEvent(
+      TraceEvent.AgentStateUpdated(
+        status = agentState.status.toString,
+        messageCount = agentState.conversation.messages.length,
+        logCount = agentState.logs.length
+      )
+    )
 
   /** Trace successful tool execution with detailed results */
   def traceToolExecution(
@@ -52,13 +58,15 @@ object TracingUtil {
     val paramString = parameters.map { case (k, v) => s"$k=$v" }.mkString(", ")
     val input       = if (paramString.nonEmpty) s"$operation: $paramString" else operation
 
-    tracing.traceEvent(TraceEvent.ToolExecuted(
-      name = toolName,
-      input = input,
-      output = s"$expression = $result",
-      duration = duration,
-      success = true
-    ))
+    tracing.traceEvent(
+      TraceEvent.ToolExecuted(
+        name = toolName,
+        input = input,
+        output = s"$expression = $result",
+        duration = duration,
+        success = true
+      )
+    )
   }
 
   /** Trace agent completion with performance metrics */
@@ -68,18 +76,19 @@ object TracingUtil {
     steps: Vector[String],
     toolsUsed: Vector[String],
     finalResponseLength: Int
-  ): Unit = {
-    tracing.traceEvent(TraceEvent.CustomEvent(
-      "agent_complete",
-      ujson.Obj(
-        "duration_ms" -> durationMs,
-        "steps" -> steps.length,
-        "tools_used" -> toolsUsed.length,
-        "final_response_length" -> finalResponseLength,
-        "timestamp" -> BenchmarkUtil.currentTimestamp
+  ): Unit =
+    tracing.traceEvent(
+      TraceEvent.CustomEvent(
+        "agent_complete",
+        ujson.Obj(
+          "duration_ms"           -> durationMs,
+          "steps"                 -> steps.length,
+          "tools_used"            -> toolsUsed.length,
+          "final_response_length" -> finalResponseLength,
+          "timestamp"             -> BenchmarkUtil.currentTimestamp
+        )
       )
-    ))
-  }
+    )
 
   /** Trace agent step errors */
   def traceAgentStepError(
@@ -87,17 +96,18 @@ object TracingUtil {
     stepCount: Int,
     errorMessage: String,
     errorType: String = "LegacyLLMError"
-  ): Unit = {
-    tracing.traceEvent(TraceEvent.CustomEvent(
-      s"agent_step_${stepCount}_error",
-      ujson.Obj(
-        "error_type" -> errorType,
-        "error_message" -> errorMessage,
-        "context" -> s"agent_step_$stepCount",
-        "timestamp" -> BenchmarkUtil.currentTimestamp
+  ): Unit =
+    tracing.traceEvent(
+      TraceEvent.CustomEvent(
+        s"agent_step_${stepCount}_error",
+        ujson.Obj(
+          "error_type"    -> errorType,
+          "error_message" -> errorMessage,
+          "context"       -> s"agent_step_$stepCount",
+          "timestamp"     -> BenchmarkUtil.currentTimestamp
+        )
       )
-    ))
-  }
+    )
 
   /** Extract tool execution parameters from tool result JSON */
   def extractToolParameters(result: ujson.Value): Map[String, String] = {
@@ -117,7 +127,7 @@ object TracingUtil {
     parameters: Map[String, String]
   )
 
-  def parseToolResult(toolContent: String): Option[ToolResult] = {
+  def parseToolResult(toolContent: String): Option[ToolResult] =
     Try {
       val result = ujson.read(toolContent)
       ToolResult(
@@ -127,5 +137,4 @@ object TracingUtil {
         parameters = extractToolParameters(result)
       )
     }.toOption
-  }
 }

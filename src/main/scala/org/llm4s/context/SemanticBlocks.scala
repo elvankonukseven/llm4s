@@ -68,11 +68,6 @@ object SemanticBlocks {
               groupMessages(tail, accumulated, Some(newBlock))
           }
 
-        case otherMsg +: tail =>
-          logger.warn(s"Unexpected message type: ${otherMsg.getClass.getSimpleName}")
-          val newBlock           = SemanticBlock.standaloneMessage(otherMsg)
-          val updatedAccumulated = currentBlock.map(accumulated :+ _).getOrElse(accumulated)
-          groupMessages(tail, updatedAccumulated, Some(newBlock))
       }
 
     val blocks = groupMessages(messages, Seq.empty, None)

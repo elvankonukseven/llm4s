@@ -1,5 +1,6 @@
 import com.typesafe.sbt.packager.docker.Cmd
 import sbt.Keys.{libraryDependencies, *}
+import scoverage.ScoverageKeys._
 
 
 // Define supported Scala versions
@@ -8,19 +9,17 @@ val scala3   = "3.7.1"
 val scala3CompilerOptions = Seq(
   "-explain",
   "-explain-types",
-  "-Wconf:cat=unused:s",   // suppress unused warnings
-  "-Wconf:cat=deprecation:s", // suppress deprecation warnings
   "-Wunused:nowarn",
   "-feature",
   "-unchecked",
   "-source:3.3",
   "-Wsafe-init",
   "-deprecation",
-  "-Wunused:all"
+  "-Wunused:all",
+  "-Werror"
 )
 val scala2CompilerOptions = Seq(
-  // "-Xfatal-warnings", Commented to allow deprecation warnings
-  // "-Wconf:deprecation:w", // suppress deprecation warnings - Commented to allow deprecation warnings
+  "-Xfatal-warnings",
   "-feature",
   "-unchecked",
   "-deprecation",
@@ -76,8 +75,33 @@ inThisBuild(
         case None =>
           "0.0.0-UNKNOWN"
       }
-    }
+    },
+
+    // ---- Test coverage (scoverage) ----
+    // Global defaults; tweak locally with: set coverageMinimumStmtTotal := 85
+    ThisBuild / coverageMinimumStmtTotal := 80,
+    ThisBuild / coverageFailOnMinimum    := false,
+    ThisBuild / coverageHighlighting     := true,
+    // Exclude non-library entry points and samples from coverage stats
+    ThisBuild / coverageExcludedPackages :=
+      """
+        |org\.llm4s\.runner\..*
+        |org\.llm4s\.samples\..*
+      """.stripMargin.replaceAll("\n", ";")
+    ,
+    // Generate HTML only at the current project (root when using aliases)
+    ThisBuild / (coverageReport / aggregate) := false
   )
+)
+
+// Handy aliases for coverage runs
+addCommandAlias(
+  "cov",
+  ";clean;coverage;test;coverageAggregate;coverageReport;coverageOff"
+)
+addCommandAlias(
+  "covReport",
+  ";clean;coverage;test;coverageReport;coverageOff"
 )
 
 def scalacOptionsForVersion(scalaVersion: String): Seq[String] =
@@ -91,7 +115,8 @@ def scalacOptionsForVersion(scalaVersion: String): Seq[String] =
 
 lazy val commonSettings = Seq(
   Compile / scalacOptions := scalacOptionsForVersion(scalaVersion.value),
-
+  Test / scalacOptions    := scalacOptionsForVersion(scalaVersion.value),
+  Compile / packageDoc / publishArtifact := !isSnapshot.value,
   Compile / unmanagedSourceDirectories ++= {
     val sourceDir = (Compile / sourceDirectory).value
     CrossVersion.partialVersion(scalaVersion.value) match {
@@ -111,7 +136,6 @@ lazy val commonSettings = Seq(
   libraryDependencies ++= List(
     "org.typelevel" %% "cats-core"       % "2.13.0",
     "com.lihaoyi"   %% "upickle"         % "4.2.1",
-    "com.lihaoyi"   %% "fansi"           % "0.5.0",
     "ch.qos.logback" % "logback-classic" % "1.5.18",
     "dev.optics" %% "monocle-core"  % "3.3.0",
     "dev.optics" %% "monocle-macro" % "3.3.0",
@@ -130,6 +154,7 @@ lazy val root = (project in file("."))
     // Library project: do not expose or auto-discover mains
     Compile / mainClass := None,
     Compile / discoveredMainClasses := Seq.empty,
+    resolvers += "Vosk Repository" at "https://alphacephei.com/maven/",
     libraryDependencies ++= List(
       "com.azure"          % "azure-ai-openai" % "1.0.0-beta.16",
       "com.anthropic"      % "anthropic-java"  % "2.2.0",
@@ -146,7 +171,10 @@ lazy val root = (project in file("."))
       "org.apache.poi" % "poi-ooxml" % "5.4.1",
       "com.lihaoyi" %% "requests" % "0.9.0",
       "org.jsoup" % "jsoup" % "1.21.1",
-      "io.github.cdimascio" % "dotenv-java" % "3.0.0"
+      "io.github.cdimascio" % "dotenv-java" % "3.0.0",
+          // Speech: Vosk for lightweight STT (replacing abandoned Sphinx4)
+    "net.java.dev.jna" % "jna" % "5.13.0",
+    "com.alphacephei" % "vosk" % "0.3.45"
     )
 
   )
@@ -253,12 +281,12 @@ addCommandAlias(
 
 addCommandAlias(
   "cleanTestAll",
-  ";project root; clean; project shared; clean; project workspaceRunner; clean; project samples; clean; project crossTestScala2; clean; project crossTestScala3; clean; project root; +publishLocal; testAll"
+  ";project root; clean; project shared; clean; project workspaceRunner; clean; project samples; clean; project crossTestScala2; clean; project crossTestScala3; clean; project root; testAll"
 )
 
 addCommandAlias(
   "cleanTestAllAndFormat",
-  ";scalafmtAll;project root; clean; project shared; clean; project workspaceRunner; clean; project samples; clean; project crossTestScala2; clean; project crossTestScala3; clean; project root; +publishLocal; testAll"
+  ";scalafmtAll;project root; clean; project shared; clean; project workspaceRunner; clean; project samples; clean; project crossTestScala2; clean; project crossTestScala3; clean; project root; testAll"
 )
 addCommandAlias("compileAll", ";+compile")
 addCommandAlias("testCross", ";crossTestScala2/test;crossTestScala3/test")

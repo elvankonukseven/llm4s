@@ -9,7 +9,7 @@ import upickle.default._
  */
 object MultiToolExample {
   private val logger = LoggerFactory.getLogger(getClass)
-  
+
   // Result types
   case class CalculationResult(result: Double)
   case class SearchResult(query: String, results: Seq[String])
@@ -124,10 +124,10 @@ object MultiToolExample {
     logger.info("Executing calculator tool...")
     val startTime1 = System.currentTimeMillis()
     toolRegistry.execute(calcRequest) match {
-      case Right(json) => 
+      case Right(json) =>
         val duration = System.currentTimeMillis() - startTime1
         logger.info("Calculator tool completed in {}ms. Result: {}", duration, json.render(indent = 2))
-      case Left(error) => 
+      case Left(error) =>
         val duration = System.currentTimeMillis() - startTime1
         logger.error("Calculator tool failed in {}ms with error: {}", duration, error)
     }
@@ -135,10 +135,10 @@ object MultiToolExample {
     logger.info("Executing search tool...")
     val startTime2 = System.currentTimeMillis()
     toolRegistry.execute(searchRequest) match {
-      case Right(json) => 
+      case Right(json) =>
         val duration = System.currentTimeMillis() - startTime2
         logger.info("Search tool completed in {}ms. Result: {}", duration, json.render(indent = 2))
-      case Left(error) => 
+      case Left(error) =>
         val duration = System.currentTimeMillis() - startTime2
         logger.error("Search tool failed in {}ms with error: {}", duration, error)
     }

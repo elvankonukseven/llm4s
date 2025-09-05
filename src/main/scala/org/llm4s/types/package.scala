@@ -847,6 +847,18 @@ package object types {
   /** Type alias for percentage (0.0 to 100.0) */
   type Percentage = Double
 
+  /**
+   * Extension methods for Try to Result conversion
+   */
+  implicit class TryOps[A](val t: Try[A]) extends AnyVal {
+
+    /**
+     * Convert a Try to a Result using the existing Result.fromTry method.
+     * This provides the cleaner .toResult syntax requested in PR reviews.
+     */
+    def toResult: Result[A] = Result.fromTry(t)
+  }
+
 }
 
 /**

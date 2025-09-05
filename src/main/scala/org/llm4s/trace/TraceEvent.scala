@@ -1,7 +1,9 @@
 package org.llm4s.trace
 
 import org.llm4s.llmconnect.model.TokenUsage
+
 import java.time.Instant
+import java.util.UUID
 
 /**
  * Type-safe trace events for better composability and type safety
@@ -129,4 +131,41 @@ object TraceEvent {
       "data"       -> data
     )
   }
+
+  def createTraceEvent(
+    traceId: String,
+    now: String,
+    environment: String,
+    release: String,
+    version: String,
+    traceInput: String,
+    traceOutput: String,
+    modelName: String,
+    messageCount: Int
+  ): ujson.Obj =
+    ujson.Obj(
+      "id"        -> UUID.randomUUID().toString,
+      "timestamp" -> now,
+      "type"      -> "trace-create",
+      "body" -> ujson.Obj(
+        "id"          -> traceId,
+        "timestamp"   -> now,
+        "environment" -> environment,
+        "release"     -> release,
+        "version"     -> version,
+        "public"      -> true,
+        "name"        -> "LLM4S Agent Run",
+        "input"       -> traceInput,
+        "output"      -> traceOutput,
+        "userId"      -> "llm4s-user",
+        "sessionId"   -> s"session-${System.currentTimeMillis()}",
+        "model"       -> modelName,
+        "metadata" -> ujson.Obj(
+          "framework"    -> "llm4s",
+          "messageCount" -> messageCount
+        ),
+        "tags" -> ujson.Arr("llm4s", "agent")
+      )
+    )
+
 }

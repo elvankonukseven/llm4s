@@ -140,7 +140,7 @@ object LLMCompressor {
     tokenCounter: ConversationTokenCounter,
     llmClient: LLMClient,
     targetBudget: TokenBudget,
-    customPrompt: Option[String] = None
+    customPrompt: Option[String]
   ): Result[LLMCompressedConversation] = {
     logger.info(s"Starting legacy LLM compression with target budget: $targetBudget tokens")
 
