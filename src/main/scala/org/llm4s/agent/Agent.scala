@@ -38,15 +38,17 @@ class Agent(client: LLMClient) {
       case None           => baseSystemPrompt
     }
 
+    val systemMsg = SystemMessage(fullSystemPrompt)
+    // Only store user message in conversation - system message is now config, not history
     val initialMessages = Seq(
-      SystemMessage(fullSystemPrompt),
       UserMessage(query)
     )
 
     AgentState(
       conversation = Conversation(initialMessages),
       tools = tools,
-      userQuery = query
+      userQuery = query,
+      systemMessage = Some(systemMsg)
     )
   }
 
@@ -60,8 +62,8 @@ class Agent(client: LLMClient) {
         val options = CompletionOptions(tools = state.tools.tools)
 
         logger.debug("Running completion step with tools: {}", state.tools.tools.map(_.name).mkString(", "))
-        // Request next step from LLM
-        client.complete(state.conversation, options) match {
+        // Request next step from LLM using system message injection
+        client.complete(state.toApiConversation, options) match {
           case Right(completion) =>
             val logMessage = completion.message.toolCalls match {
               case Seq() => s"[assistant] text: ${completion.message.content}"

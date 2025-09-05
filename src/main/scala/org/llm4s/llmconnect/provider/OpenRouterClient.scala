@@ -254,4 +254,8 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
       usage = usage
     )
   }
+
+  override def getContextWindow(): Int = config.contextWindow
+
+  override def getReserveCompletion(): Int = config.reserveCompletion
 }

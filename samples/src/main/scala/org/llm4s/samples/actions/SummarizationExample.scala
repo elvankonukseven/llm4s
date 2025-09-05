@@ -4,7 +4,7 @@ import org.llm4s.config.ConfigReader.LLMConfig
 import org.llm4s.identity.TokenizerId.O200K_BASE
 import org.llm4s.llmconnect.{LLM, LLMClient}
 import org.llm4s.llmconnect.model._
-import org.llm4s.tokens.Tokenizer
+import org.llm4s.context.tokens.Tokenizer
 import org.llm4s.types.Result
 
 /**

@@ -5,7 +5,7 @@ import com.azure.ai.openai.{ OpenAIClientBuilder, OpenAIServiceVersion, OpenAICl
 import com.azure.core.credential.{ AzureKeyCredential, KeyCredential }
 import org.llm4s.error.LLMError
 import org.llm4s.llmconnect.LLMClient
-import org.llm4s.llmconnect.config.{ AzureConfig, OpenAIConfig }
+import org.llm4s.llmconnect.config.{ AzureConfig, OpenAIConfig, ProviderConfig }
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.streaming._
 import org.llm4s.toolapi.{ AzureToolHelper, ToolRegistry }
@@ -21,7 +21,8 @@ import scala.jdk.CollectionConverters._
  */
 class OpenAIClient private (
   private val model: String,
-  private val client: AzureOpenAIClient
+  private val client: AzureOpenAIClient,
+  private val config: ProviderConfig
 ) extends LLMClient {
 
   /* * Constructor for OpenAI (non-Azure) */
@@ -30,7 +31,8 @@ class OpenAIClient private (
     new OpenAIClientBuilder()
       .credential(new KeyCredential(config.apiKey))
       .endpoint(config.baseUrl)
-      .buildClient()
+      .buildClient(),
+    config
   )
 
   /** Constructor for Azure OpenAI */
@@ -40,7 +42,8 @@ class OpenAIClient private (
       .credential(new AzureKeyCredential(config.apiKey))
       .endpoint(config.endpoint)
       .serviceVersion(OpenAIServiceVersion.valueOf(config.apiVersion))
-      .buildClient()
+      .buildClient(),
+    config
   )
 
   override def complete(
@@ -146,6 +149,10 @@ class OpenAIClient private (
     } catch {
       case e: Exception => Left(LLMError.fromThrowable(e))
     }
+
+  override def getContextWindow(): Int = config.contextWindow
+
+  override def getReserveCompletion(): Int = config.reserveCompletion
 
   private def extractStreamingToolCall(delta: ChatResponseMessage): Option[ToolCall] =
     Option(delta.getToolCalls).flatMap { toolCalls =>

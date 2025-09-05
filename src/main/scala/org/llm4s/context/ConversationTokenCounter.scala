@@ -44,7 +44,7 @@ class ConversationTokenCounter private (tokenizer: org.llm4s.context.tokens.Stri
   }
 
   private def countAssistantMessage(message: AssistantMessage): Int = {
-    val contentTokens  = message.contentOpt.map(countTextContent).getOrElse(0)
+    val contentTokens  = countTextContent(message.content)
     val toolCallTokens = message.toolCalls.map(countToolCall).sum
     contentTokens + toolCallTokens
   }

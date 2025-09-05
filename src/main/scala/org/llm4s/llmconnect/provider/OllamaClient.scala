@@ -170,4 +170,8 @@ class OllamaClient(config: OllamaConfig) extends LLMClient {
       message = AssistantMessage(content)
     )
   }
+
+  override def getContextWindow(): Int = config.contextWindow
+
+  override def getReserveCompletion(): Int = config.reserveCompletion
 }

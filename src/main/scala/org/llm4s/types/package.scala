@@ -587,6 +587,114 @@ package object types {
   type WorkflowStep      = Map[String, Any]
   type WorkflowResult[A] = Result[Map[StepId, A]]
 
+  // Context Management Types (for conversation context handling)
+  final case class SemanticBlockId(value: String) extends AnyVal {
+    override def toString: String = value
+  }
+
+  /** Type alias for externalization threshold in bytes */
+  type ExternalizationThreshold = Long
+
+  /** Type-safe wrapper for artifact store keys */
+  final case class ArtifactKey(value: String) extends AnyVal {
+    override def toString: String = value
+  }
+
+  object ArtifactKey {
+    def generate(): ArtifactKey =
+      ArtifactKey(java.util.UUID.randomUUID().toString)
+
+    def fromContent(content: String): ArtifactKey = {
+      val hash = java.security.MessageDigest
+        .getInstance("SHA-256")
+        .digest(content.getBytes("UTF-8"))
+        .map("%02x".format(_))
+        .mkString
+      ArtifactKey(s"content_$hash")
+    }
+  }
+
+  /** Information about externalized content */
+  case class ExternalizedContent(
+    key: ArtifactKey,
+    originalSize: ByteCount,
+    contentType: String,
+    summary: String
+  )
+
+  object SemanticBlockId {
+    def generate(): SemanticBlockId =
+      SemanticBlockId(java.util.UUID.randomUUID().toString.take(8))
+  }
+
+  final case class ContextSummary(value: String) extends AnyVal {
+    override def toString: String = value
+    def tokenLength: Int          = (value.split("\\s+").length * 1.3).toInt // Rough approximation
+  }
+
+  /** Type alias for semantic block priority (higher = more important to preserve) */
+  type BlockPriority = Int
+
+  /** Type alias for compression ratio (0.0 to 1.0, lower = more compression) */
+  type CompressionRatio = Double
+
+  /** Type alias for context window size in semantic blocks */
+  type ContextWindowSize = Int
+
+  /** Type-safe wrapper for content size in bytes with validation */
+  final case class ContentSize(bytes: Long) extends AnyVal {
+    override def toString: String                                      = s"${bytes}B"
+    def toKB: Double                                                   = bytes / 1024.0
+    def toMB: Double                                                   = bytes / (1024.0 * 1024.0)
+    def exceedsThreshold(threshold: ExternalizationThreshold): Boolean = bytes > threshold
+  }
+
+  object ContentSize {
+    def fromString(content: String): ContentSize =
+      ContentSize(content.getBytes("UTF-8").length.toLong)
+
+    def fromBytes(bytes: Array[Byte]): ContentSize =
+      ContentSize(bytes.length.toLong)
+  }
+
+  /** Type-safe wrapper for token estimates with accuracy indicators */
+  final case class TokenEstimate(tokens: Int) extends AnyVal {
+    def value: Int = tokens
+  }
+
+  object TokenEstimate {
+    def withAccuracy(tokens: Int, accuracy: EstimationAccuracy): (TokenEstimate, EstimationAccuracy) =
+      (TokenEstimate(tokens), accuracy)
+  }
+
+  sealed trait EstimationAccuracy
+  object EstimationAccuracy {
+    case object High   extends EstimationAccuracy // Exact tokenizer
+    case object Medium extends EstimationAccuracy // Approximate but tested
+    case object Low    extends EstimationAccuracy // Rough heuristic
+  }
+
+  /** Type-safe wrapper for compression target ratios with validation */
+  final case class CompressionTarget(ratio: Double) extends AnyVal {
+    def value: Double    = ratio
+    def isValid: Boolean = ratio > 0.0 && ratio <= 1.0
+  }
+
+  object CompressionTarget {
+    def create(ratio: Double): Result[CompressionTarget] =
+      ratio match {
+        case r if r > 0.0 && r <= 1.0 => Right(CompressionTarget(r))
+        case r =>
+          Left(error.ValidationError(s"Invalid compression ratio: $r. Must be between 0.0 and 1.0", "compressionRatio"))
+      }
+
+    val Minimal: CompressionTarget = CompressionTarget(0.95)
+    val Light: CompressionTarget   = CompressionTarget(0.80)
+    val Medium: CompressionTarget  = CompressionTarget(0.60)
+    val Heavy: CompressionTarget   = CompressionTarget(0.40)
+    val Maximum: CompressionTarget = CompressionTarget(0.20)
+  }
+
   /**
    * Validation and smart constructors for type-safe IDs and names.
    * These objects provide methods to create and validate type-safe IDs and names,
@@ -700,6 +808,35 @@ package object types {
 
   /** Type alias for token count */
   type TokenCount = Int
+
+  /** Type alias for token budget */
+  type TokenBudget = Int
+
+  /** Type alias for effective token budget (after applying headroom) */
+  type EffectiveBudget = Int
+
+  /** Type-safe wrapper for headroom percentage with validation */
+  final case class HeadroomPercent(value: Double) extends AnyVal {
+    override def toString: String = f"${value * 100}%.1f%%"
+    def asRatio: Double           = value
+    def isValid: Boolean          = value >= 0.0 && value < 1.0
+  }
+
+  object HeadroomPercent {
+    def create(value: Double): Result[HeadroomPercent] =
+      value match {
+        case v if v >= 0.0 && v < 1.0 => Right(HeadroomPercent(v))
+        case v => Left(error.ValidationError(s"Invalid headroom: $v. Must be between 0.0 and 1.0", "headroom"))
+      }
+
+    val None: HeadroomPercent         = HeadroomPercent(0.0)
+    val Light: HeadroomPercent        = HeadroomPercent(0.05) // 5%
+    val Standard: HeadroomPercent     = HeadroomPercent(0.08) // 8%
+    val Conservative: HeadroomPercent = HeadroomPercent(0.15) // 15%
+  }
+
+  /** Type alias for system message token count */
+  type SystemTokenCount = Int
 
   /** Type alias for temperature parameter (0.0 to 2.0) */
   type Temperature = Double

@@ -12,7 +12,8 @@ case class AgentState(
   tools: ToolRegistry,
   userQuery: String,
   status: AgentStatus = AgentStatus.InProgress,
-  logs: Seq[String] = Seq.empty
+  logs: Seq[String] = Seq.empty,
+  systemMessage: Option[SystemMessage] = None
 ) {
 
   /**
@@ -38,6 +39,13 @@ case class AgentState(
    */
   def withStatus(newStatus: AgentStatus): AgentState =
     copy(status = newStatus)
+
+  /**
+   * Creates a complete conversation by injecting the system message at the beginning.
+   * This is used for LLM API calls where system message should be first.
+   */
+  def toApiConversation: Conversation =
+    Conversation(systemMessage.toSeq ++ conversation.messages)
 
   /**
    * Prints a detailed dump of the agent execution state for debugging

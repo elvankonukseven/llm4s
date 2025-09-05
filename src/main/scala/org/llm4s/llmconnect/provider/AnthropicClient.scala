@@ -4,7 +4,7 @@ import com.anthropic.core.{ JsonObject, ObjectMappers }
 import com.anthropic.models.messages
 import com.anthropic.models.messages.{ Message, MessageCreateParams, RawMessageStreamEvent, Tool }
 import org.llm4s.llmconnect.LLMClient
-import org.llm4s.llmconnect.config.AnthropicConfig
+import org.llm4s.llmconnect.config.{ AnthropicConfig, ProviderConfig }
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.streaming._
 import org.llm4s.toolapi.{ ObjectSchema, ToolFunction }
@@ -15,6 +15,9 @@ import java.util.Optional
 import scala.jdk.CollectionConverters._
 
 class AnthropicClient(config: AnthropicConfig) extends LLMClient {
+  // Store config for budget calculations
+  private val providerConfig: ProviderConfig = config
+
   // Initialize Anthropic client
   private val client = AnthropicOkHttpClient
     .builder()
@@ -255,6 +258,10 @@ curl https://api.anthropic.com/v1/messages \
       case e: Exception =>
         Left(LLMError.fromThrowable(e))
     }
+
+  override def getContextWindow(): Int = providerConfig.contextWindow
+
+  override def getReserveCompletion(): Int = providerConfig.reserveCompletion
 
   // Add messages from conversation to the parameters builder
   private def addMessagesToParams(

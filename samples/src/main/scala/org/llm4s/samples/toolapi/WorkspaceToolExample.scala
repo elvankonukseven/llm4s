@@ -64,23 +64,15 @@ object WorkspaceToolExample {
 
         // Test with GPT-4o
         logger.info(s"Testing with OpenAI's $gpt4oModelName...")
-        val openaiConfig = OpenAIConfig(
-          apiKey = sys.env.getOrElse("OPENAI_API_KEY", ""),
-          model = gpt4oModelName,
-          organization = None,
-          baseUrl = "https://api.openai.com/v1"
-        )
+        val configReader = org.llm4s.config.ConfigReader.LLMConfig()
+        val openaiConfig = OpenAIConfig.from(gpt4oModelName, configReader)
         
         val openaiClient = LLM.client(LLMProvider.OpenAI, openaiConfig)
         testLLMWithTools(openaiClient, toolRegistry, prompt)
 
         // Test with Claude
         logger.info(s"Testing with Anthropic's $sonnetModelName...")
-        val anthropicConfig = AnthropicConfig(
-          apiKey = sys.env.getOrElse("ANTHROPIC_API_KEY", ""),
-          model = sonnetModelName,
-          baseUrl = "https://api.anthropic.com"
-        )
+        val anthropicConfig = AnthropicConfig.from(sonnetModelName, configReader)
         
         val anthropicClient = LLM.client(LLMProvider.Anthropic, anthropicConfig)
         testLLMWithTools(anthropicClient, toolRegistry, prompt)

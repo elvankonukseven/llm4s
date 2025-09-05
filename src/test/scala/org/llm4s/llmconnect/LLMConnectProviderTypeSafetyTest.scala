@@ -12,7 +12,9 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
       apiKey = "key",
       model = "gpt-4o",
       organization = None,
-      baseUrl = "https://api.openai.com/v1"
+      baseUrl = "https://api.openai.com/v1",
+      contextWindow = 128000,
+      reserveCompletion = 4096
     )
     val client = LLMConnect.getClient(LLMProvider.OpenAI, cfg)
     client.getClass.getSimpleName shouldBe "OpenAIClient"
@@ -23,7 +25,9 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
       apiKey = "key",
       model = "openrouter/test-model",
       organization = None,
-      baseUrl = "https://openrouter.ai/api/v1"
+      baseUrl = "https://openrouter.ai/api/v1",
+      contextWindow = 128000,
+      reserveCompletion = 4096
     )
     val client = LLMConnect.getClient(LLMProvider.OpenRouter, cfg)
     client.getClass.getSimpleName shouldBe "OpenRouterClient"
@@ -34,7 +38,9 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
       endpoint = "https://example.azure.com",
       apiKey = "key",
       model = "gpt-4o",
-      apiVersion = "V2025_01_01_PREVIEW"
+      apiVersion = "V2025_01_01_PREVIEW",
+      contextWindow = 128000,
+      reserveCompletion = 4096
     )
     val client = LLMConnect.getClient(LLMProvider.Azure, cfg)
     client.getClass.getSimpleName shouldBe "OpenAIClient"
@@ -44,7 +50,9 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
     val cfg: ProviderConfig = AnthropicConfig(
       apiKey = "key",
       model = "claude-3-sonnet",
-      baseUrl = "https://api.anthropic.com"
+      baseUrl = "https://api.anthropic.com",
+      contextWindow = 200000,
+      reserveCompletion = 4096
     )
     val client = LLMConnect.getClient(LLMProvider.Anthropic, cfg)
     client.getClass.getSimpleName shouldBe "AnthropicClient"
@@ -53,7 +61,9 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
   test("Ollama provider with OllamaConfig returns OllamaClient") {
     val cfg: ProviderConfig = OllamaConfig(
       model = "llama3.1",
-      baseUrl = "http://localhost:11434"
+      baseUrl = "http://localhost:11434",
+      contextWindow = 8192,
+      reserveCompletion = 4096
     )
     val client = LLMConnect.getClient(LLMProvider.Ollama, cfg)
     client.getClass.getSimpleName shouldBe "OllamaClient"
@@ -63,7 +73,9 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
     val wrongCfg: ProviderConfig = AnthropicConfig(
       apiKey = "key",
       model = "claude-3-sonnet",
-      baseUrl = "https://api.anthropic.com"
+      baseUrl = "https://api.anthropic.com",
+      contextWindow = 200000,
+      reserveCompletion = 4096
     )
 
     assertThrows[IllegalArgumentException] {
@@ -76,7 +88,9 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
       endpoint = "https://example.azure.com",
       apiKey = "key",
       model = "gpt-4o",
-      apiVersion = "V2025_01_01_PREVIEW"
+      apiVersion = "V2025_01_01_PREVIEW",
+      contextWindow = 128000,
+      reserveCompletion = 4096
     )
 
     assertThrows[IllegalArgumentException] {
@@ -89,7 +103,9 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
       apiKey = "key",
       model = "gpt-4o",
       organization = None,
-      baseUrl = "https://api.openai.com/v1"
+      baseUrl = "https://api.openai.com/v1",
+      contextWindow = 128000,
+      reserveCompletion = 4096
     )
 
     assertThrows[IllegalArgumentException] {
